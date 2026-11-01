@@ -3,11 +3,13 @@
 eider-json's versions (semver). Before 1.0 the MAJOR.MINOR is the Eider toolchain's it goes
 with (`eider` in eider.toml), the PATCH its own.
 
-## 0.2.1
+## 0.3.0
 
-Typed JSON with derived codecs (eider-json#1), for an Eider 0.2 toolchain with attributes and
-comptime reflection (eider-lang #19, #20: after eider-lang 0.2.0; it doesn't build with 0.2.0
-itself). Compatible: everything before is unchanged.
+For Eider 0.3 (`eider = "0.3"`). Typed JSON with derived codecs (eider-json#1), using the
+language's attributes and comptime reflection (eider-lang #19, #20); every plain string literal
+interpolates (eider-lang U29), so the literals with braces here are raw strings or have their
+braces doubled. Compatible otherwise: everything before is unchanged. (0.2.1, this work's
+number while it was developed, was never tagged.)
 
 - `Encode` and `Decode` traits, `to_json`, `from_json` and `from_json_with`, with impls for
   i32, i64, u8, u32, u64, usize, bool, String, str (encoding), List[T], Option[T] and
@@ -24,6 +26,7 @@ itself). Compatible: everything before is unchanged.
   Decode errors carry a JSONPath (`decode_error_text`).
 - A mutation fuzzer (tests/fuzz_test.ei, `sh scripts/fuzz.sh N`): mutants must decode or be
   rejected with a path, never trap, and round-trip.
+- `json.reader`: decode part of a parsed document.
 
 ## 0.2.0
 
