@@ -19,6 +19,8 @@ $.shapes[0]: missing the discriminator `kind`
 $.shapes[0]: unknown member "color"
 $.a: not an i32 (out of range, or not an integer)
 $: nested too deeply at line 1, column 9 (byte 8)
+-- part of a parsed document
+{"created":3,"by":"x"}
 6
 DISPLAY_NAME
 httpserver2

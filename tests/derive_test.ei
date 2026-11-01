@@ -116,6 +116,14 @@ fn main() uses io {
         Ok(_) => print("deep ok?")
         Err(e) => out(json.decode_error_text(e))
     }
+    print("-- part of a parsed document")
+    let d = json.parse("{\"meta\": {\"created\": 3, \"by\": \"x\"}}".bytes()).unwrap()
+    let mut rd = json.reader(d, json.field(d, d.root, "meta").unwrap())
+    let m: Result[Meta, json.DecodeError] = Meta.decode(inout rd)
+    match m {
+        Ok(v) => out(json.to_json(v))
+        Err(e) => out(json.decode_error_text(e))
+    }
     print(json.member_name("user_id", "", "camelCase").len())
     out(json.member_name("displayName", "", "SCREAMING_SNAKE_CASE"))
     out(json.member_name("HTTPServer2", "", "kebab-case"))

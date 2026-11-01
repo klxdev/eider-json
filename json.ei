@@ -1101,6 +1101,10 @@ fn upper(c: u8) -> u8 {
 /// flattened field reads that same object).
 pub type Reader = { doc: Doc, node: u32, path: List[List[u8]], claimed: List[List[u8]], flat: u32 }
 
+/// A reader of node `node` of a parsed document (path `$`): to decode part of a document
+/// that was parsed already, `T.decode(inout json.reader(doc, id))`.
+pub fn reader(doc: Doc, node: u32) -> Reader { Reader(doc, node, List.new(), List.new(), 0) }
+
 impl Reader {
     /// The JSON kind (NULL ... OBJECT) of the value.
     fn kind(self) -> u32 { kind(self.doc, self.node) }
