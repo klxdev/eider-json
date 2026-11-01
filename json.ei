@@ -371,9 +371,9 @@ fn obj(inout p: P) -> Option[u32] {
             p.i += 1
             break
         } else if p.i >= p.src.len() {
-            return fail(inout p, "unexpected end of input in an object (expected `,` or `}`)")
+            return fail(inout p, r"unexpected end of input in an object (expected `,` or `}`)")
         } else {
-            return fail(inout p, "expected `,` or `}` in an object")
+            return fail(inout p, r"expected `,` or `}` in an object")
         }
     }
     p.depth -= 1
