@@ -3,6 +3,28 @@
 eider-json's versions (semver). Before 1.0 the MAJOR.MINOR is the Eider toolchain's it goes
 with (`eider` in eider.toml), the PATCH its own.
 
+## 0.2.1
+
+Typed JSON with derived codecs (eider-json#1), for an Eider 0.2 toolchain with attributes and
+comptime reflection (eider-lang #19, #20: after eider-lang 0.2.0; it doesn't build with 0.2.0
+itself). Compatible: everything before is unchanged.
+
+- `Encode` and `Decode` traits, `to_json`, `from_json` and `from_json_with`, with impls for
+  i32, i64, u8, u32, u64, usize, bool, String, str (encoding), List[T], Option[T] and
+  Map[String, T] (written in key order).
+- Derived codecs for records and enums: `encode_record`/`decode_record`,
+  `encode_enum`/`decode_enum`, over the type's fields with comptime reflection, and
+  `attr json { name, skip, default, flatten, rename_all, tag, unknown }`: renames, skipped
+  fields (their Default on decoding), defaults for missing members, flattened records, name
+  cases (`snake_case`, `camelCase`, `kebab-case`, `SCREAMING_SNAKE_CASE`), an enum's
+  discriminator key (default `type`; variants without fields are strings), and a per-type
+  policy for unknown members (`deny` by default, or `ignore`).
+- Secure defaults: `limits()` (8 MiB, depth 64, strings of 1 MiB, 100,000 items, no repeated
+  keys) for `from_json`, `parse_with` for any `Limits`; `parse` keeps its old behaviour.
+  Decode errors carry a JSONPath (`decode_error_text`).
+- A mutation fuzzer (tests/fuzz_test.ei, `sh scripts/fuzz.sh N`): mutants must decode or be
+  rejected with a path, never trap, and round-trip.
+
 ## 0.2.0
 
 For Eider 0.2 (`eider = "0.2"`): eider-lang's 0.2 builds programs only through LLVM (clang

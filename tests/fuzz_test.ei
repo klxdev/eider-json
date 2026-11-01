@@ -1,0 +1,195 @@
+import std.bytes
+import std.env
+import std.io
+import json
+
+// A mutation fuzzer for parsing and the derived decoders: documents that decode are mutated
+// (bytes flipped, inserted, deleted, repeated, cut), then parsed and decoded into typed
+// values within `json.limits()`. Nothing may trap: each mutant is Ok or a DecodeError with a
+// path. Whatever decodes must encode and decode back to the same text (a round trip). The
+// mutants are a fixed sequence (a seeded PRNG), so the counts below are this file's golden
+// output; FUZZ_ITERS=<n> runs n mutants per seed instead (scripts/fuzz.sh).
+
+@json(rename_all = "snake_case")
+type Order = {
+    id: u64,
+    @json(name = "who") customer: String,
+    lines: List[Line],
+    note: Option[String],
+    @json(default) priority: i32,
+    @json(flatten) audit: Audit,
+    status: Status,
+    tags: Map[String, i64],
+}
+
+type Line = { sku: String, qty: u32, price: i64 }
+
+@json(unknown = "ignore")
+type Audit = { created: i64, by: String }
+
+@json(tag = "state")
+type Status = | Open | Shipped(carrier: String, days: u8) | Cancelled(reason: String)
+
+impl json.Encode for Order {
+    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+}
+impl json.Decode for Order {
+    fn decode(inout r: json.Reader) -> Result[Order, json.DecodeError] { json.decode_record(inout r) }
+    fn missing() -> Option[Order] { None }
+}
+impl json.Encode for Line {
+    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+}
+impl json.Decode for Line {
+    fn decode(inout r: json.Reader) -> Result[Line, json.DecodeError] { json.decode_record(inout r) }
+    fn missing() -> Option[Line] { None }
+}
+impl json.Encode for Audit {
+    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+}
+impl json.Decode for Audit {
+    fn decode(inout r: json.Reader) -> Result[Audit, json.DecodeError] { json.decode_record(inout r) }
+    fn missing() -> Option[Audit] { None }
+}
+impl json.Encode for Status {
+    fn encode(self, inout w: json.Writer) { json.encode_enum(self, inout w) }
+}
+impl json.Decode for Status {
+    fn decode(inout r: json.Reader) -> Result[Status, json.DecodeError] { json.decode_enum(inout r) }
+    fn missing() -> Option[Status] { None }
+}
+
+type Rng = { state: u64 }
+
+fn next(inout r: Rng) -> u64 {
+    r.state = r.state *% 6364136223846793005 +% 1442695040888963407
+    r.state / 4294967296
+}
+
+fn below(inout r: Rng, n: usize) -> usize { (next(inout r) % (n as u64)) as usize }
+
+/// Interesting bytes: structure, quotes, escapes, digits, a NUL, invalid UTF-8.
+fn pick_byte(inout r: Rng) -> u8 {
+    let pool = "{}[],:\"\\0123456789-+.eEtrufalsn \n".bytes()
+    let k = below(inout r, pool.len() + 4)
+    if k < pool.len() { return pool[k] }
+    if k == pool.len() { return 0 }
+    if k == pool.len() + 1 { return 255 }
+    if k == pool.len() + 2 { return 192 }
+    below(inout r, 256) as u8
+}
+
+fn mutate(inout r: Rng, src: List[u8]) -> List[u8] {
+    let mut s = src.copy()
+    let n = 1 + below(inout r, 4)
+    for k in 0..n {
+        if s.len() == 0 {
+            s.push(pick_byte(inout r))
+            continue
+        }
+        let i = below(inout r, s.len())
+        let op = below(inout r, 6)
+        if op == 0 {
+            s[i] = pick_byte(inout r)
+        } else if op == 1 {
+            let mut t = bytes.slice(s, 0, i)
+            t.push(pick_byte(inout r))
+            bytes.append(inout t, bytes.slice(s, i, s.len()))
+            s = t
+        } else if op == 2 {
+            let j = i + below(inout r, 8)
+            let e = if j > s.len() { s.len() } else { j }
+            let mut t = bytes.slice(s, 0, i)
+            bytes.append(inout t, bytes.slice(s, e, s.len()))
+            s = t
+        } else if op == 3 {
+            // repeat a slice (nesting, repeated keys)
+            let j = i + below(inout r, 24)
+            let e = if j > s.len() { s.len() } else { j }
+            let mut t = bytes.slice(s, 0, e)
+            bytes.append(inout t, bytes.slice(s, i, s.len()))
+            s = t
+        } else if op == 4 {
+            s = bytes.slice(s, 0, i)
+        } else {
+            // a digit run: integer edges
+            let mut t = bytes.slice(s, 0, i)
+            for d in 0..below(inout r, 22) { t.push(48 + below(inout r, 10) as u8) }
+            bytes.append(inout t, bytes.slice(s, i, s.len()))
+            s = t
+        }
+    }
+    s
+}
+
+type Counts = { ok: u64, err: u64, parse_err: u64 }
+
+fn run(seed: List[u8], iters: u64, inout rng: Rng, inout c: Counts) uses io {
+    for k in 0..iters {
+        let m = mutate(inout rng, seed)
+        let r: Result[Order, json.DecodeError] = json.from_json(m)
+        match r {
+            Ok(o) => {
+                c.ok += 1
+                let text = json.to_json(o)
+                let back: Result[Order, json.DecodeError] = json.from_json(text.copy())
+                match back {
+                    Ok(o2) => {
+                        if !bytes.eq(json.to_json(o2), text) {
+                            io.outln(bytes.concat("round trip differs: ".bytes(), text))
+                        }
+                    }
+                    Err(e) => {
+                        let mut l = "round trip fails: ".bytes()
+                        bytes.append(inout l, json.decode_error_text(e))
+                        io.outln(l)
+                    }
+                }
+            }
+            Err(e) => {
+                if e.path.len() == 0 || e.path[0] != 36 { io.outln(bytes.concat("error without a path: ".bytes(), e.msg)) }
+                if bytes.eq(e.path, "$".bytes()) { c.parse_err += 1 } else { c.err += 1 }
+            }
+        }
+        // the plain parser on the same bytes: never traps either
+        match json.parse_with(m, json.limits()) {
+            Ok(_) => {}
+            Err(_) => {}
+        }
+    }
+}
+
+fn main() uses io {
+    let mut iters: u64 = 1500
+    match env.get("FUZZ_ITERS".bytes()) {
+        Some(v) => match bytes.parse_u64(v) {
+            Some(n) => { iters = n }
+            None => {}
+        }
+        None => {}
+    }
+    let seeds = [
+        "{\"id\": 7, \"who\": \"Ada\", \"lines\": [{\"sku\": \"a-1\", \"qty\": 2, \"price\": 350}, {\"sku\": \"b\", \"qty\": 1, \"price\": -5}], \"note\": null, \"created\": 1700000000, \"by\": \"sys\", \"status\": \"Open\", \"tags\": {\"x\": 1}}",
+        "{\"id\": 18446744073709551615, \"who\": \"\\u00e9\\ud83d\\ude00\", \"lines\": [], \"note\": \"fragile\", \"priority\": -2147483648, \"created\": -1, \"by\": \"\", \"status\": {\"state\": \"Shipped\", \"carrier\": \"post\", \"days\": 255}, \"tags\": {}}",
+        "{\"id\": 0, \"who\": \"x\", \"lines\": [{\"sku\": \"\", \"qty\": 4294967295, \"price\": 9223372036854775807}], \"created\": 0, \"by\": \"b\", \"status\": {\"state\": \"Cancelled\", \"reason\": \"no\"}, \"tags\": {\"a\": -1, \"b\": 2}}",
+    ]
+    let mut c = Counts(0, 0, 0)
+    for i in 0..3 {
+        let mut rng = Rng(i as u64 + 1)
+        let s = seeds[i as usize].bytes()
+        // each seed decodes as it is
+        let r: Result[Order, json.DecodeError] = json.from_json(s.copy())
+        match r {
+            Ok(o) => io.outln(json.to_json(o))
+            Err(e) => io.outln(json.decode_error_text(e))
+        }
+        run(s, iters, inout rng, inout c)
+    }
+    let mut l = "decoded ".bytes()
+    bytes.append(inout l, bytes.from_u64(c.ok))
+    bytes.append(inout l, ", rejected by the decoder ".bytes())
+    bytes.append(inout l, bytes.from_u64(c.err))
+    bytes.append(inout l, ", by the parser ".bytes())
+    bytes.append(inout l, bytes.from_u64(c.parse_err))
+    io.outln(l)
+}

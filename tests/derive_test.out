@@ -1,0 +1,24 @@
+-- encode
+{"id":7,"displayName":"Ada","email":null,"tags":["a","b \"q\""],"score":3,"created":1700,"by":"sys"}
+{"kind":"circle","radius":2}
+{"kind":"box","w":3,"h":4}
+"empty"
+-- decode
+{"id":9,"displayName":"Bob","email":"b@x","tags":[],"score":0,"created":5,"by":"me"}
+{"id":9,"displayName":"Bob","email":null,"tags":["x"],"score":-4,"created":5,"by":"me"}
+{"a":1,"shapes":["empty",{"kind":"circle","radius":3},{"kind":"box","w":1,"h":2}]}
+-- errors
+$: unknown member "admin"
+$: missing member "displayName"
+$.id: not a u64 (out of range, or not an integer)
+$.tags[1]: expected a string, found a number
+$: a key repeated in an object at line 1, column 15 (byte 14)
+$: expected an object, found an array
+$.shapes[0]: unknown variant "hexagon"
+$.shapes[0]: missing the discriminator `kind`
+$.shapes[0]: unknown member "color"
+$.a: not an i32 (out of range, or not an integer)
+$: nested too deeply at line 1, column 9 (byte 8)
+6
+DISPLAY_NAME
+httpserver2

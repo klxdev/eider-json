@@ -19,6 +19,24 @@
 //! Documents can also be built (`new_null`, `new_bool`, `new_int`, `new_number`, `new_string`,
 //! `new_array`, `new_object`; children before parents) and written (`write`). `quote` writes one
 //! JSON string and replaces invalid UTF-8 with U+FFFD, so the output is always valid JSON.
+//!
+//! Untrusted input is parsed with `parse_with(src, limits())`: at most 8 MiB, depth 64,
+//! strings of 1 MiB, 100,000 items per container, and no repeated keys (`parse` keeps its
+//! old leniency: no size limits, depth MAX_DEPTH, repeated keys allowed).
+//!
+//! Typed values: `Encode` and `Decode` turn Eider values into JSON and back (`to_json`,
+//! `from_json`, `from_json_with`), implemented here for the integers, bool, String, List,
+//! Option and Map[String, T]. For a record or enum of yours, derive them: an impl whose
+//! methods call `encode_record` / `decode_record` (records) or `encode_enum` / `decode_enum`
+//! (enums), which go over the type's fields with comptime reflection (eider-lang
+//! docs/site/reference/reflection.md), shaped by the `@json(...)` attribute on the type, its
+//! fields and its variants: `name`, `skip`, `default`, `flatten`, `rename_all`, `tag`,
+//! `unknown`. Decoding is strict by default: a member no field takes is an error
+//! (`@json(unknown = "ignore")` on the type allows them), a missing member is an error unless
+//! the field is an Option or `@json(default)`, numbers must fit the field's type, and every
+//! error names its place as a JSONPath (`$.lines[2].qty: not a u32 ...`). The decoders read
+//! a parsed document (`Doc`) through a `Reader`; a format-neutral data model (eider-lang #100)
+//! can sit under the same traits later.
 
 import core.sys
 import std.bytes
@@ -43,7 +61,21 @@ pub type Doc = { nodes: List[Node], extra: List[u32], strs: List[List[u8]], root
 
 pub type Error = { msg: List[u8], offset: u64, line: u32, col: u32 }
 
-type P = { src: List[u8], i: usize, depth: u32, doc: Doc, err: List[u8] }
+type P = { src: List[u8], i: usize, depth: u32, doc: Doc, err: List[u8], lim: Limits }
+
+/// What `parse_with` accepts: at most `max_bytes` of input, containers nested `max_depth`
+/// deep, strings of `max_string` bytes (decoded), `max_items` elements or members per array
+/// or object; `duplicates`: whether an object may repeat a key (RFC 8259 leaves it open;
+/// a repeated key is how two parsers come to disagree about one document).
+pub type Limits = { max_bytes: u64, max_depth: u32, max_string: u64, max_items: u64, duplicates: bool }
+
+/// The defaults for untrusted input (`from_json`): 8 MiB, depth 64, strings of 1 MiB,
+/// 100,000 items per container, no repeated keys.
+pub fn limits() -> Limits { Limits(8388608, 64, 1048576, 100000, false) }
+
+/// What `parse` has always accepted: any size, depth MAX_DEPTH, repeated keys (the last wins
+/// for `get`).
+pub fn lenient() -> Limits { Limits(18446744073709551615, MAX_DEPTH, 18446744073709551615, 18446744073709551615, true) }
 
 // ---- building
 
@@ -201,8 +233,17 @@ pub fn path(d: Doc, id: u32, keys: List[List[u8]]) -> Option[u32] {
 // ---- parsing
 
 /// Parse one JSON text.
-pub fn parse(src: List[u8]) -> Result[Doc, Error] {
-    let mut p = P(src, 0, 0, new_doc(), List.new())
+pub fn parse(src: List[u8]) -> Result[Doc, Error] { parse_with(src, lenient()) }
+
+/// Parse one JSON text within `lim`.
+pub fn parse_with(src: List[u8], lim: Limits) -> Result[Doc, Error] {
+    if src.len() as u64 > lim.max_bytes {
+        let mut m = sys.lit("the input is larger than ")
+        bytes.append(inout m, bytes.from_u64(lim.max_bytes))
+        bytes.append(inout m, sys.lit(" bytes"))
+        return Err(Error(m, 0, 1, 1))
+    }
+    let mut p = P(src, 0, 0, new_doc(), List.new(), lim)
     // a UTF-8 byte order mark is not JSON (RFC 8259 8.1: MUST NOT add one; we may reject it)
     ws(inout p)
     let root = match value(inout p) {
@@ -299,7 +340,7 @@ fn word(inout p: P, w: str, k: u32, a: u32) -> Option[u32] {
 
 fn enter(inout p: P) -> bool {
     p.depth += 1
-    p.depth <= MAX_DEPTH
+    p.depth <= p.lim.max_depth
 }
 
 fn arr(inout p: P) -> Option[u32] {
@@ -316,6 +357,7 @@ fn arr(inout p: P) -> Option[u32] {
         ws(inout p)
         let v = value(inout p)?
         items.push(v)
+        if items.len() as u64 > p.lim.max_items { return fail(inout p, "too many elements in an array") }
         ws(inout p)
         let c = peek(p)
         if c == 44 {
@@ -340,6 +382,7 @@ fn obj(inout p: P) -> Option[u32] {
     p.i += 1
     let mut keys: List[u32] = List.new()
     let mut vals: List[u32] = List.new()
+    let mut seen: Map[List[u8], bool] = Map.new()
     ws(inout p)
     if peek(p) == 125 {
         p.i += 1
@@ -351,6 +394,11 @@ fn obj(inout p: P) -> Option[u32] {
         if p.i >= p.src.len() { return fail(inout p, "unexpected end of input in an object (expected a key)") }
         if peek(p) != 34 { return fail(inout p, "expected a string key in an object") }
         let k = str_lit(inout p)?
+        if !p.lim.duplicates {
+            if seen.contains(k) { return fail(inout p, "a key repeated in an object") }
+            seen.insert(k.copy(), true)
+        }
+        if keys.len() as u64 >= p.lim.max_items { return fail(inout p, "too many members in an object") }
         keys.push(new_string(inout p.doc, k))
         ws(inout p)
         if peek(p) != 58 {
@@ -549,6 +597,10 @@ fn str_lit(inout p: P) -> Option[List[u8]] {
             p.i += n
         }
     }
+    if out.len() as u64 > p.lim.max_string {
+        p.err = sys.lit("a string longer than the limit")
+        return None
+    }
     Some(out)
 }
 
@@ -586,7 +638,7 @@ fn num(inout p: P) -> Option[u32] {
 /// The whole text is a JSON number.
 fn valid_number(text: List[u8]) -> bool {
     if text.len() == 0 { return false }
-    let mut p = P(text, 0, 0, new_doc(), List.new())
+    let mut p = P(text, 0, 0, new_doc(), List.new(), lenient())
     match num(inout p) {
         Some(_) => p.i == text.len()
         None => false
@@ -719,4 +771,686 @@ pub fn write_into(inout out: List[u8], d: Doc, id: u32) {
         }
         out.push(125)
     }
+}
+
+// ---- typed values: Encode, Decode and the derived codecs
+
+/// How a type, field or variant maps to JSON (eider-lang docs/site/guide/json.md). On a
+/// field: `name` (the member's key; default the field's name), `skip` (never written; on
+/// decoding its Default), `default` (missing on decoding: its Default instead of an error),
+/// `flatten` (a record field whose members are the outer object's). On a variant: `name` (its
+/// tag). On a type: `rename_all` (`snake_case`, `camelCase`, `kebab-case` or `SCREAMING_SNAKE_CASE`,
+/// for the fields' or the variants' names), `tag` (an enum's discriminator key, default
+/// `type`), `unknown` (`deny`, the default, or `ignore`: what decoding does with a member no
+/// field takes).
+pub attr json { name: str = "", skip: bool = false, default: bool = false, flatten: bool = false, rename_all: str = "", tag: str = "", unknown: str = "" }
+
+/// A value that can be written as JSON.
+pub trait Encode { fn encode(self, inout w: Writer) }
+
+/// A value that can be read from JSON: `decode` reads the value `r` is at; `missing` is the
+/// value of a record field whose member is absent (Some(None) for an Option, else None: the
+/// member is required).
+pub trait Decode {
+    fn decode(inout r: Reader) -> Result[Self, DecodeError]
+    fn missing() -> Option[Self]
+}
+
+/// Why decoding failed, and where: `path` is a JSONPath to the value (`$.items[3].qty`).
+pub type DecodeError = { path: List[u8], msg: List[u8] }
+
+/// "<path>: <msg>"
+pub fn decode_error_text(e: DecodeError) -> List[u8] {
+    let mut m = e.path.copy()
+    bytes.append(inout m, sys.lit(": "))
+    bytes.append(inout m, e.msg)
+    m
+}
+
+/// `x` as compact JSON text.
+pub fn to_json[T: Encode](x: T) -> List[u8] {
+    let mut w = writer()
+    x.encode(inout w)
+    w.out
+}
+
+/// The value of type T in the JSON text `src`, parsed within `limits()` (repeated keys are
+/// errors).
+pub fn from_json[T: Decode](src: List[u8]) -> Result[T, DecodeError] { from_json_with(src, limits()) }
+
+pub fn from_json_with[T: Decode](src: List[u8], lim: Limits) -> Result[T, DecodeError] {
+    let d = match parse_with(src, lim) {
+        Ok(x) => x
+        Err(e) => { return Err(DecodeError(sys.lit("$"), error_text(e))) }
+    }
+    let root = d.root
+    let mut r = Reader(d, root, List.new(), List.new(), 0)
+    T.decode(inout r)
+}
+
+// ---- writing
+
+/// JSON text being written: `open` holds, per open array or object, whether it has a value
+/// yet; `keyed` that a member's key was just written.
+pub type Writer = { out: List[u8], open: List[bool], keyed: bool }
+
+pub fn writer() -> Writer { Writer(List.new(), List.new(), false) }
+
+impl Writer {
+    /// Before a value: the comma that separates it from the one before.
+    fn sep(inout self) {
+        if self.keyed {
+            self.keyed = false
+            return
+        }
+        let n = self.open.len()
+        if n == 0 { return }
+        if self.open[n - 1] { self.out.push(44) }
+        self.open[n - 1] = true
+    }
+
+    fn null_value(inout self) {
+        self.sep()
+        bytes.append(inout self.out, sys.lit("null"))
+    }
+
+    fn bool(inout self, b: bool) {
+        self.sep()
+        if b { bytes.append(inout self.out, sys.lit("true")) } else { bytes.append(inout self.out, sys.lit("false")) }
+    }
+
+    fn int(inout self, v: i64) {
+        self.sep()
+        bytes.append(inout self.out, bytes.from_i64(v))
+    }
+
+    fn uint(inout self, v: u64) {
+        self.sep()
+        bytes.append(inout self.out, bytes.from_u64(v))
+    }
+
+    fn string(inout self, s: List[u8]) {
+        self.sep()
+        quote_into(inout self.out, s)
+    }
+
+    fn begin_array(inout self) {
+        self.sep()
+        self.out.push(91)
+        self.open.push(false)
+    }
+
+    fn end_array(inout self) {
+        self.open.pop()
+        self.out.push(93)
+    }
+
+    fn begin_object(inout self) {
+        self.sep()
+        self.out.push(123)
+        self.open.push(false)
+    }
+
+    fn end_object(inout self) {
+        self.open.pop()
+        self.out.push(125)
+    }
+
+    /// A member's key; its value follows.
+    fn key(inout self, k: List[u8]) {
+        self.sep()
+        quote_into(inout self.out, k)
+        self.out.push(58)
+        self.keyed = true
+    }
+
+    /// The members of an object written as `{...}` by another Writer, as members of the
+    /// object being written (`flatten`).
+    fn members(inout self, obj: List[u8]) {
+        if obj.len() <= 2 { return }
+        self.sep()
+        bytes.append(inout self.out, bytes.slice(obj, 1, obj.len() - 1))
+    }
+}
+
+impl Encode for i64 {
+    fn encode(self, inout w: Writer) { w.int(self) }
+}
+
+impl Encode for i32 {
+    fn encode(self, inout w: Writer) { w.int(self as i64) }
+}
+
+impl Encode for u8 {
+    fn encode(self, inout w: Writer) { w.uint(self as u64) }
+}
+
+impl Encode for u32 {
+    fn encode(self, inout w: Writer) { w.uint(self as u64) }
+}
+
+impl Encode for u64 {
+    fn encode(self, inout w: Writer) { w.uint(self) }
+}
+
+impl Encode for usize {
+    fn encode(self, inout w: Writer) { w.uint(self as u64) }
+}
+
+impl Encode for bool {
+    fn encode(self, inout w: Writer) { w.bool(self) }
+}
+
+impl Encode for String {
+    fn encode(self, inout w: Writer) { w.string(self.bytes()) }
+}
+
+impl Encode for str {
+    fn encode(self, inout w: Writer) { w.string(self.bytes()) }
+}
+
+impl[T: Encode] Encode for List[T] {
+    fn encode(self, inout w: Writer) {
+        w.begin_array()
+        for x in self { x.encode(inout w) }
+        w.end_array()
+    }
+}
+
+impl[T: Encode] Encode for Option[T] {
+    fn encode(self, inout w: Writer) {
+        match self {
+            Some(x) => x.encode(inout w)
+            None => w.null_value()
+        }
+    }
+}
+
+impl[T: Encode] Encode for Map[String, T] {
+    fn encode(self, inout w: Writer) {
+        // in key order, so equal Maps give equal text
+        let mut ks = self.keys()
+        sort_strings(inout ks)
+        w.begin_object()
+        for k in ks {
+            w.key(k.bytes())
+            match self.get(k) {
+                Some(v) => v.encode(inout w)
+                None => w.null_value()
+            }
+        }
+        w.end_object()
+    }
+}
+
+fn sort_strings(inout xs: List[String]) {
+    // insertion sort: objects are small
+    for i in 1..xs.len() {
+        let mut j = i.copy()
+        while j > 0 && xs[j - 1] > xs[j] {
+            let a = xs[j - 1].replace(String.from(""))
+            let b = xs[j].replace(a)
+            xs[j - 1] = b
+            j -= 1
+        }
+    }
+}
+
+/// A record as an object: one member per field (`@json`: renamed, skipped, flattened).
+pub fn encode_record[T](x: T, inout w: Writer) {
+    w.begin_object()
+    comptime for f in fields(T) {
+        comptime if !attr[json](f).skip {
+            comptime if attr[json](f).flatten {
+                encode_flat(x.[f], inout w)
+            } else {
+                w.key(member_name(f.name, attr[json](f).name, attr[json](T).rename_all))
+                x.[f].encode(inout w)
+            }
+        }
+    }
+    w.end_object()
+}
+
+fn encode_flat[F: Encode](x: F, inout w: Writer) {
+    let mut inner = writer()
+    x.encode(inout inner)
+    w.members(inner.out)
+}
+
+/// An enum: a variant without fields as its name (`"Empty"`), one with fields as an object
+/// with the discriminator first (`{"type": "Circle", "r": 2}`; `@json(tag = "kind")` on the
+/// enum names it).
+pub fn encode_enum[T](x: T, inout w: Writer) {
+    comptime for v in variants(T) {
+        if v.matches(x) {
+            let name = member_name(v.name, attr[json](v).name, attr[json](T).rename_all)
+            let mut n: u32 = 0
+            comptime for f in fields(v) { n += 1 }
+            if n == 0 {
+                w.string(name)
+            } else {
+                w.begin_object()
+                w.key(tag_key(attr[json](T).tag))
+                w.string(name)
+                comptime for f in fields(v) {
+                    w.key(member_name(f.name, "", attr[json](T).rename_all))
+                    x.[f].encode(inout w)
+                }
+                w.end_object()
+            }
+        }
+    }
+}
+
+fn tag_key(t: str) -> List[u8] {
+    if t.len() == 0 { return sys.lit("type") }
+    t.bytes()
+}
+
+/// The key of a field or variant named `name`: `rename` if given, else `name` in the case
+/// `rule` names.
+pub fn member_name(name: str, rename: str, rule: str) -> List[u8] {
+    if rename.len() > 0 { return rename.bytes() }
+    let src = name.bytes()
+    let r = rule.bytes()
+    if r.len() == 0 { return src }
+    // the words: split at `_` and before an upper-case letter after a lower-case one
+    let mut words: List[List[u8]] = List.new()
+    let mut cur: List[u8] = List.new()
+    for i in 0..src.len() {
+        let c = src[i]
+        let is_up = c >= 65 && c <= 90
+        let prev_lower = i > 0 && src[i - 1] >= 97 && src[i - 1] <= 122
+        if c == 95 || (is_up && prev_lower) {
+            if cur.len() > 0 { words.push(cur.replace(List.new())) }
+            if c == 95 { continue }
+        }
+        cur.push(lower(c))
+    }
+    if cur.len() > 0 { words.push(cur) }
+    let mut out: List[u8] = List.new()
+    let camel = bytes.eq(r, sys.lit("camelCase"))
+    let kebab = bytes.eq(r, sys.lit("kebab-case"))
+    let scream = bytes.eq(r, sys.lit("SCREAMING_SNAKE_CASE"))
+    for i in 0..words.len() {
+        let wd = words[i].copy()
+        if i > 0 && !camel { if kebab { out.push(45) } else { out.push(95) } }
+        for j in 0..wd.len() {
+            let c = wd[j]
+            if (camel && i > 0 && j == 0) || scream { out.push(upper(c)) } else { out.push(c) }
+        }
+    }
+    out
+}
+
+fn lower(c: u8) -> u8 {
+    if c >= 65 && c <= 90 { return c + 32 }
+    c
+}
+
+fn upper(c: u8) -> u8 {
+    if c >= 97 && c <= 122 { return c - 32 }
+    c
+}
+
+// ---- reading
+
+/// Where decoding is: a parsed document, the node being read and the path to it; `claimed`
+/// the members the record decoders took from the object at `node` (`flat` > 0 while a
+/// flattened field reads that same object).
+pub type Reader = { doc: Doc, node: u32, path: List[List[u8]], claimed: List[List[u8]], flat: u32 }
+
+impl Reader {
+    /// The JSON kind (NULL ... OBJECT) of the value.
+    fn kind(self) -> u32 { kind(self.doc, self.node) }
+
+    /// The path as JSONPath: `$`, `.key` (`["key"]` for a key that isn't a name), `[i]`.
+    fn where(self) -> List[u8] {
+        let mut out = sys.lit("$")
+        for s in self.path { bytes.append(inout out, s) }
+        out
+    }
+
+    fn error(self, msg: List[u8]) -> DecodeError { DecodeError(self.where(), msg) }
+
+    fn expected(self, what: str) -> DecodeError {
+        let mut m = sys.lit("expected ")
+        bytes.append(inout m, sys.lit(what))
+        bytes.append(inout m, sys.lit(", found "))
+        bytes.append(inout m, sys.lit(kind_name(self.kind())))
+        self.error(m)
+    }
+
+    /// A reader of child node `id`, at path segment `seg`.
+    fn child(self, id: u32, seg: List[u8]) -> Reader {
+        let mut p = self.path.copy()
+        p.push(seg)
+        Reader(self.doc, id, p, List.new(), 0)
+    }
+
+    /// The integer value, if it is an integer in i64's range.
+    fn int(self, what: str, lo: i64, hi: i64) -> Result[i64, DecodeError] {
+        if self.kind() != NUMBER { return Err(self.expected(what)) }
+        match as_int(self.doc, self.node) {
+            Some(v) => {
+                if v < lo || v > hi { return Err(self.error(range_msg(what))) }
+                Ok(v)
+            }
+            None => Err(self.error(range_msg(what))),
+        }
+    }
+}
+
+fn range_msg(what: str) -> List[u8] {
+    let mut m = sys.lit("not ")
+    bytes.append(inout m, sys.lit(what))
+    bytes.append(inout m, sys.lit(" (out of range, or not an integer)"))
+    m
+}
+
+fn kind_name(k: u32) -> str {
+    match k {
+        1 => "null"
+        2 => "a boolean"
+        3 => "a number"
+        4 => "a string"
+        5 => "an array"
+        6 => "an object"
+        _ => "nothing"
+    }
+}
+
+/// The path segment of member `key`.
+fn key_seg(key: List[u8]) -> List[u8] {
+    let mut plain = key.len() > 0
+    for i in 0..key.len() {
+        let c = key[i]
+        let ok = c == 95 || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (i > 0 && c >= 48 && c <= 57)
+        if !ok { plain = false }
+    }
+    if plain {
+        let mut s = sys.lit(".")
+        bytes.append(inout s, key)
+        return s
+    }
+    let mut s = sys.lit("[")
+    quote_into(inout s, key)
+    s.push(93)
+    s
+}
+
+fn idx_seg(i: u32) -> List[u8] {
+    let mut s = sys.lit("[")
+    bytes.append(inout s, bytes.from_u64(i as u64))
+    s.push(93)
+    s
+}
+
+impl Decode for i64 {
+    fn decode(inout r: Reader) -> Result[i64, DecodeError] { r.int("an i64", -9223372036854775807 - 1, 9223372036854775807) }
+    fn missing() -> Option[i64] { None }
+}
+
+impl Decode for i32 {
+    fn decode(inout r: Reader) -> Result[i32, DecodeError] {
+        let v = r.int("an i32", -2147483648, 2147483647)?
+        Ok(v as i32)
+    }
+    fn missing() -> Option[i32] { None }
+}
+
+impl Decode for u8 {
+    fn decode(inout r: Reader) -> Result[u8, DecodeError] {
+        let v = r.int("a u8", 0, 255)?
+        Ok(v as u8)
+    }
+    fn missing() -> Option[u8] { None }
+}
+
+impl Decode for u32 {
+    fn decode(inout r: Reader) -> Result[u32, DecodeError] {
+        let v = r.int("a u32", 0, 4294967295)?
+        Ok(v as u32)
+    }
+    fn missing() -> Option[u32] { None }
+}
+
+impl Decode for u64 {
+    fn decode(inout r: Reader) -> Result[u64, DecodeError] { decode_u64(inout r, "a u64") }
+    fn missing() -> Option[u64] { None }
+}
+
+impl Decode for usize {
+    fn decode(inout r: Reader) -> Result[usize, DecodeError] {
+        let v = decode_u64(inout r, "a usize")?
+        Ok(v as usize)
+    }
+    fn missing() -> Option[usize] { None }
+}
+
+fn decode_u64(inout r: Reader, what: str) -> Result[u64, DecodeError] {
+    if r.kind() != NUMBER { return Err(r.expected(what)) }
+    let mut text: List[u8] = List.new()
+    match num_text(r.doc, r.node) {
+        Some(t) => { text = t }
+        None => {}
+    }
+    match bytes.parse_u64(text) {
+        Some(v) => Ok(v)
+        None => Err(r.error(range_msg(what)))
+    }
+}
+
+impl Decode for bool {
+    fn decode(inout r: Reader) -> Result[bool, DecodeError] {
+        match as_bool(r.doc, r.node) {
+            Some(b) => Ok(b)
+            None => Err(r.expected("a boolean"))
+        }
+    }
+    fn missing() -> Option[bool] { None }
+}
+
+impl Decode for String {
+    fn decode(inout r: Reader) -> Result[String, DecodeError] {
+        let b = match as_str(r.doc, r.node) {
+            Some(x) => x
+            None => { return Err(r.expected("a string")) }
+        }
+        match String.from_bytes(b) {
+            Ok(s) => Ok(s)
+            Err(_) => Err(r.error(sys.lit("a string with a NUL character (\\u0000)")))
+        }
+    }
+    fn missing() -> Option[String] { None }
+}
+
+impl[T: Decode] Decode for List[T] {
+    fn decode(inout r: Reader) -> Result[List[T], DecodeError] {
+        if r.kind() != ARRAY { return Err(r.expected("an array")) }
+        let mut out: List[T] = List.new()
+        for i in 0..len(r.doc, r.node) {
+            let id: u32 = match at(r.doc, r.node, i) {
+                Some(x) => x
+                None => 0
+            }
+            let mut c = r.child(id, idx_seg(i))
+            out.push(T.decode(inout c)?)
+        }
+        Ok(out)
+    }
+    fn missing() -> Option[List[T]] { None }
+}
+
+impl[T: Decode] Decode for Option[T] {
+    fn decode(inout r: Reader) -> Result[Option[T], DecodeError] {
+        if r.kind() == NULL { return Ok(None) }
+        let v = T.decode(inout r)?
+        Ok(Some(v))
+    }
+    fn missing() -> Option[Option[T]] { Some(None) }
+}
+
+impl[T: Decode] Decode for Map[String, T] {
+    fn decode(inout r: Reader) -> Result[Map[String, T], DecodeError] {
+        if r.kind() != OBJECT { return Err(r.expected("an object")) }
+        let mut out: Map[String, T] = Map.new()
+        for i in 0..len(r.doc, r.node) {
+            let k = key_text(r.doc, r.node, i)
+            let vid: u32 = match val_at(r.doc, r.node, i) {
+                Some(x) => x
+                None => 0
+            }
+            let mut c = r.child(vid, key_seg(k.copy()))
+            let v = T.decode(inout c)?
+            let ks = match String.from_bytes(k) {
+                Ok(s) => s
+                Err(_) => { return Err(c.error(sys.lit("a key with a NUL character"))) }
+            }
+            out.insert(ks, v)
+        }
+        Ok(out)
+    }
+    fn missing() -> Option[Map[String, T]] { None }
+}
+
+fn key_text(d: Doc, obj: u32, i: u32) -> List[u8] {
+    match key_at(d, obj, i) {
+        Some(k) => match as_str(d, k) {
+            Some(s) => s
+            None => List.new()
+        }
+        None => List.new()
+    }
+}
+
+/// A record from an object: each field from its member (`@json`: renamed, skipped,
+/// defaulted, flattened); a member no field takes is an error unless the record's
+/// `@json(unknown = "ignore")` says otherwise.
+pub fn decode_record[T](inout r: Reader) -> Result[T, DecodeError] {
+    if r.kind() != OBJECT { return Err(r.expected("an object")) }
+    let outer = r.flat == 0
+    let saved = r.claimed.replace(List.new())
+    let x = T(comptime for f in fields(T) {
+        comptime if attr[json](f).skip {
+            default_value()
+        } else {
+            comptime if attr[json](f).flatten {
+                flat_value(inout r)?
+            } else {
+                comptime if attr[json](f).default {
+                    member_or_default(inout r, member_name(f.name, attr[json](f).name, attr[json](T).rename_all))?
+                } else {
+                    member(inout r, member_name(f.name, attr[json](f).name, attr[json](T).rename_all))?
+                }
+            }
+        }
+    })
+    if outer {
+        check_unknown(r, attr[json](T).unknown)?
+        r.claimed = saved
+    } else {
+        // a flattened record: its members are the outer record's to judge
+        let mut all = saved.copy()
+        for k in r.claimed { all.push(k) }
+        r.claimed = all
+    }
+    Ok(x)
+}
+
+/// An enum from a string (a variant without fields) or an object whose discriminator member
+/// (`type`, or the enum's `@json(tag = ...)`) names the variant.
+pub fn decode_enum[T](inout r: Reader) -> Result[T, DecodeError] {
+    let k = r.kind()
+    let mut name: List[u8] = List.new()
+    let tk = tag_key(attr[json](T).tag)
+    if k == STRING {
+        name = match as_str(r.doc, r.node) {
+            Some(s) => s
+            None => List.new()
+        }
+    } else if k == OBJECT {
+        let tid = match get(r.doc, r.node, tk.copy()) {
+            Some(x) => x
+            None => {
+                let mut m = sys.lit("missing the discriminator `")
+                bytes.append(inout m, tk.copy())
+                m.push(96)
+                return Err(r.error(m))
+            }
+        }
+        name = match as_str(r.doc, tid) {
+            Some(s) => s
+            None => { return Err(r.child(tid, key_seg(tk.copy())).expected("a string")) }
+        }
+    } else {
+        return Err(r.expected("a string or an object"))
+    }
+    let saved = r.claimed.replace(List.new())
+    r.claimed.push(tk.copy())
+    comptime for v in variants(T) {
+        if bytes.eq(name, member_name(v.name, attr[json](v).name, attr[json](T).rename_all)) {
+            let x = v(comptime for f in fields(v) { member(inout r, member_name(f.name, "", attr[json](T).rename_all))? })
+            if k == OBJECT { check_unknown(r, attr[json](T).unknown)? }
+            r.claimed = saved
+            return Ok(x)
+        }
+    }
+    let mut m = sys.lit("unknown variant ")
+    quote_into(inout m, name)
+    Err(r.error(m))
+}
+
+fn default_value[F: Default]() -> F { F.default() }
+
+/// Member `key` of the object `r` is at, decoded (claimed); absent: F.missing(), else an error.
+fn member[F: Decode](inout r: Reader, key: List[u8]) -> Result[F, DecodeError] {
+    if r.kind() != OBJECT { return Err(r.expected("an object")) }
+    r.claimed.push(key.copy())
+    match get(r.doc, r.node, key.copy()) {
+        Some(id) => {
+            let mut c = r.child(id, key_seg(key))
+            F.decode(inout c)
+        }
+        None => {
+            match F.missing() {
+                Some(v) => Ok(v)
+                None => {
+                    let mut m = sys.lit("missing member ")
+                    quote_into(inout m, key)
+                    Err(r.error(m))
+                }
+            }
+        }
+    }
+}
+
+fn member_or_default[F: Decode + Default](inout r: Reader, key: List[u8]) -> Result[F, DecodeError] {
+    if get(r.doc, r.node, key.copy()).is_none() {
+        r.claimed.push(key)
+        return Ok(F.default())
+    }
+    member(inout r, key)
+}
+
+/// A flattened field: its type decodes the same object.
+fn flat_value[F: Decode](inout r: Reader) -> Result[F, DecodeError] {
+    r.flat += 1
+    let v = F.decode(inout r)
+    r.flat -= 1
+    v
+}
+
+fn check_unknown(r: Reader, policy: str) -> Result[bool, DecodeError] {
+    if bytes.eq(policy.bytes(), sys.lit("ignore")) { return Ok(true) }
+    for i in 0..len(r.doc, r.node) {
+        let k = key_text(r.doc, r.node, i)
+        if !r.claimed.contains(k) {
+            let mut m = sys.lit("unknown member ")
+            quote_into(inout m, k)
+            return Err(r.error(m))
+        }
+    }
+    Ok(true)
 }

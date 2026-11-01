@@ -1,0 +1,4 @@
+{"id":7,"who":"Ada","lines":[{"sku":"a-1","qty":2,"price":350},{"sku":"b","qty":1,"price":-5}],"note":null,"priority":0,"created":1700000000,"by":"sys","status":"Open","tags":{"x":1}}
+{"id":18446744073709551615,"who":"é😀","lines":[],"note":"fragile","priority":-2147483648,"created":-1,"by":"","status":{"state":"Shipped","carrier":"post","days":255},"tags":{}}
+{"id":0,"who":"x","lines":[{"sku":"","qty":4294967295,"price":9223372036854775807}],"note":null,"priority":0,"created":0,"by":"b","status":{"state":"Cancelled","reason":"no"},"tags":{"a":-1,"b":2}}
+decoded 143, rejected by the decoder 237, by the parser 4120

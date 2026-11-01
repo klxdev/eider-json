@@ -10,6 +10,30 @@ RFC 8259 JSON for [Eider](https://github.com/klxdev/eider-lang): an arena-based 
   UTF-8 becomes U+FFFD, so the output is always valid JSON).
 - Numbers keep their exact text; integers that fit in i64 are also values.
 
+- Typed values: `json.to_json(x)` and `json.from_json(bytes)` for anything with `Encode` /
+  `Decode`; for your records and enums, derive them from their fields:
+
+  ```eider
+  import json
+
+  @json(rename_all = "camelCase")
+  type User = { @json(name = "id") user_id: u64, display_name: String, @json(default) score: i32 }
+
+  impl json.Encode for User {
+      fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+  }
+
+  impl json.Decode for User {
+      fn decode(inout r: json.Reader) -> Result[User, json.DecodeError] { json.decode_record(inout r) }
+      fn missing() -> Option[User] { None }
+  }
+  ```
+
+  `from_json` parses within `limits()` (size, depth, string and container limits, no
+  repeated keys), rejects members no field takes unless the type says
+  `@json(unknown = "ignore")`, and names the place of every error (`$.items[3].qty`).
+  eider-lang's guide "Deriving JSON" (docs/site/guide/json.md) walks through it.
+
 The module documentation (`//!` at the top of json.ei) has the details and limits.
 
 Used by: eider-lang (eider-doc), eider-http, eider-rpc, eider-openapi, eider-analyzer, eider-profiler.

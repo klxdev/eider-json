@@ -1,0 +1,122 @@
+import std.bytes
+import std.io
+import json
+
+// Derived codecs (json.encode_record, decode_record, encode_enum, decode_enum) with
+// `@json(...)`: renames, skips, defaults, flattening, discriminators, unknown members,
+// limits and paths in errors.
+
+@json(rename_all = "camelCase")
+type User = {
+    @json(name = "id") user_id: u64,
+    display_name: String,
+    email: Option[String],
+    tags: List[String],
+    @json(default) score: i32,
+    @json(skip) cache: List[u8],
+    @json(flatten) meta: Meta,
+}
+
+type Meta = { created: i64, @json(name = "by") author: String }
+
+impl json.Encode for User {
+    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+}
+
+impl json.Decode for User {
+    fn decode(inout r: json.Reader) -> Result[User, json.DecodeError] { json.decode_record(inout r) }
+    fn missing() -> Option[User] { None }
+}
+
+impl json.Encode for Meta {
+    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+}
+
+impl json.Decode for Meta {
+    fn decode(inout r: json.Reader) -> Result[Meta, json.DecodeError] { json.decode_record(inout r) }
+    fn missing() -> Option[Meta] { None }
+}
+
+@json(tag = "kind", rename_all = "snake_case")
+type Shape =
+    | Circle(radius: i64)
+    | @json(name = "box") Rect(w: i64, h: i64)
+    | Empty
+
+impl json.Encode for Shape {
+    fn encode(self, inout w: json.Writer) { json.encode_enum(self, inout w) }
+}
+
+impl json.Decode for Shape {
+    fn decode(inout r: json.Reader) -> Result[Shape, json.DecodeError] { json.decode_enum(inout r) }
+    fn missing() -> Option[Shape] { None }
+}
+
+@json(unknown = "ignore")
+type Loose = { a: i32, shapes: List[Shape] }
+
+impl json.Encode for Loose {
+    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+}
+
+impl json.Decode for Loose {
+    fn decode(inout r: json.Reader) -> Result[Loose, json.DecodeError] { json.decode_record(inout r) }
+    fn missing() -> Option[Loose] { None }
+}
+
+fn out(b: List[u8]) uses io { io.outln(b) }
+
+fn user(src: str) uses io {
+    let r: Result[User, json.DecodeError] = json.from_json(src.bytes())
+    match r {
+        Ok(u) => out(json.to_json(u))
+        Err(e) => out(json.decode_error_text(e))
+    }
+}
+
+fn loose(src: str) uses io {
+    let r: Result[Loose, json.DecodeError] = json.from_json(src.bytes())
+    match r {
+        Ok(u) => out(json.to_json(u))
+        Err(e) => out(json.decode_error_text(e))
+    }
+}
+
+fn main() uses io {
+    print("-- encode")
+    let mut tags: List[String] = List.new()
+    tags.push(String.from("a"))
+    tags.push(String.from("b \"q\""))
+    let u = User(7, String.from("Ada"), None, tags, 3, List.new(), Meta(1700, String.from("sys")))
+    out(json.to_json(u))
+    out(json.to_json(Circle(2)))
+    out(json.to_json(Rect(3, 4)))
+    out(json.to_json(Empty))
+    print("-- decode")
+    user("{\"id\": 9, \"displayName\": \"Bob\", \"email\": \"b@x\", \"tags\": [], \"created\": 5, \"by\": \"me\"}")
+    user("{\"id\": 9, \"displayName\": \"Bob\", \"tags\": [\"x\"], \"score\": -4, \"created\": 5, \"by\": \"me\"}")
+    loose("{\"a\": 1, \"extra\": true, \"shapes\": [\"empty\", {\"kind\": \"circle\", \"radius\": 3}, {\"kind\": \"box\", \"w\": 1, \"h\": 2}]}")
+    print("-- errors")
+    user("{\"id\": 9, \"displayName\": \"Bob\", \"tags\": [], \"created\": 5, \"by\": \"me\", \"admin\": true}")
+    user("{\"id\": 9, \"tags\": [], \"created\": 5, \"by\": \"me\"}")
+    user("{\"id\": -1, \"displayName\": \"Bob\", \"tags\": [], \"created\": 5, \"by\": \"me\"}")
+    user("{\"id\": 1, \"displayName\": \"Bob\", \"tags\": [\"x\", 2], \"created\": 5, \"by\": \"me\"}")
+    user("{\"id\": 1, \"id\": 2}")
+    user("[1]")
+    loose("{\"a\": 1, \"shapes\": [{\"kind\": \"hexagon\"}]}")
+    loose("{\"a\": 1, \"shapes\": [{\"radius\": 3}]}")
+    loose("{\"a\": 1, \"shapes\": [{\"kind\": \"circle\", \"radius\": 3, \"color\": 1}]}")
+    loose("{\"a\": 99999999999, \"shapes\": []}")
+    let mut deep = String.from("")
+    for i in 0..100 { deep.push_str("[") }
+    let mut lim = json.limits()
+    lim.max_depth = 8
+    let r: Result[List[i64], json.DecodeError] = json.from_json_with(deep.bytes(), lim)
+    match r {
+        Ok(_) => print("deep ok?")
+        Err(e) => out(json.decode_error_text(e))
+    }
+    print(json.member_name("user_id", "", "camelCase").len())
+    out(json.member_name("displayName", "", "SCREAMING_SNAKE_CASE"))
+    out(json.member_name("HTTPServer2", "", "kebab-case"))
+}
