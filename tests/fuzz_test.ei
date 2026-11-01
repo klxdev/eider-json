@@ -70,7 +70,7 @@ fn below(inout r: Rng, n: usize) -> usize { (next(inout r) % (n as u64)) as usiz
 
 /// Interesting bytes: structure, quotes, escapes, digits, a NUL, invalid UTF-8.
 fn pick_byte(inout r: Rng) -> u8 {
-    let pool = "{}[],:\"\\0123456789-+.eEtrufalsn \n".bytes()
+    let pool = "{{}}[],:\"\\0123456789-+.eEtrufalsn \n".bytes()
     let k = below(inout r, pool.len() + 4)
     if k < pool.len() { return pool[k] }
     if k == pool.len() { return 0 }
@@ -169,9 +169,9 @@ fn main() uses io {
         None => {}
     }
     let seeds = [
-        "{\"id\": 7, \"who\": \"Ada\", \"lines\": [{\"sku\": \"a-1\", \"qty\": 2, \"price\": 350}, {\"sku\": \"b\", \"qty\": 1, \"price\": -5}], \"note\": null, \"created\": 1700000000, \"by\": \"sys\", \"status\": \"Open\", \"tags\": {\"x\": 1}}",
-        "{\"id\": 18446744073709551615, \"who\": \"\\u00e9\\ud83d\\ude00\", \"lines\": [], \"note\": \"fragile\", \"priority\": -2147483648, \"created\": -1, \"by\": \"\", \"status\": {\"state\": \"Shipped\", \"carrier\": \"post\", \"days\": 255}, \"tags\": {}}",
-        "{\"id\": 0, \"who\": \"x\", \"lines\": [{\"sku\": \"\", \"qty\": 4294967295, \"price\": 9223372036854775807}], \"created\": 0, \"by\": \"b\", \"status\": {\"state\": \"Cancelled\", \"reason\": \"no\"}, \"tags\": {\"a\": -1, \"b\": 2}}",
+        "{{\"id\": 7, \"who\": \"Ada\", \"lines\": [{{\"sku\": \"a-1\", \"qty\": 2, \"price\": 350}}, {{\"sku\": \"b\", \"qty\": 1, \"price\": -5}}], \"note\": null, \"created\": 1700000000, \"by\": \"sys\", \"status\": \"Open\", \"tags\": {{\"x\": 1}}}}",
+        "{{\"id\": 18446744073709551615, \"who\": \"\\u00e9\\ud83d\\ude00\", \"lines\": [], \"note\": \"fragile\", \"priority\": -2147483648, \"created\": -1, \"by\": \"\", \"status\": {{\"state\": \"Shipped\", \"carrier\": \"post\", \"days\": 255}}, \"tags\": {{}}}}",
+        "{{\"id\": 0, \"who\": \"x\", \"lines\": [{{\"sku\": \"\", \"qty\": 4294967295, \"price\": 9223372036854775807}}], \"created\": 0, \"by\": \"b\", \"status\": {{\"state\": \"Cancelled\", \"reason\": \"no\"}}, \"tags\": {{\"a\": -1, \"b\": 2}}}}",
     ]
     let mut c = Counts(0, 0, 0)
     for i in 0..3 {
