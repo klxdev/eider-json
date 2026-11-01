@@ -50,9 +50,9 @@ fn valid() uses io {
     rt("1E+10")
     rt("0.000")
     rt("[]")
-    rt("{}")
-    rt("[ 1 , [2, [3, []]], {\"a\" : {\"b\": null}} ]")
-    rt("{\"k\":1,\"k\":2}")
+    rt(r"{}")
+    rt("[ 1 , [2, [3, []]], {{\"a\" : {{\"b\": null}}}} ]")
+    rt("{{\"k\":1,\"k\":2}}")
     rt("\"\"")
     rt("\"plain \\\" \\\\ \\/ \\b \\f \\n \\r \\t\"")
     rt("\"\\u0041\\u00e9\\u20ac\\ud83d\\ude00\\u0000\\u001f\\u007f\"")
@@ -66,13 +66,13 @@ fn invalid() uses io {
     rt("nul")
     rt("True")
     rt("[1,]")
-    rt("{\"a\":1,}")
+    rt("{{\"a\":1,}}")
     rt("[1 2]")
-    rt("{\"a\" 1}")
-    rt("{a:1}")
-    rt("{\"a\":}")
+    rt("{{\"a\" 1}}")
+    rt(r"{a:1}")
+    rt("{{\"a\":}}")
     rt("[")
-    rt("{\"a\":1")
+    rt("{{\"a\":1")
     rt("01")
     rt("-")
     rt("1.")
@@ -92,7 +92,7 @@ fn invalid() uses io {
     rt("\"\\udc00\"")
     rt("\"tab\there\"")
     rt("[\n  1,\n  2,\n  oops\n]")
-    rt("{\"é€\": x}")
+    rt("{{\"é€\": x}}")
     // invalid UTF-8: a lone continuation byte, an overlong `/`, an encoded surrogate, a
     // truncated sequence, a byte order mark
     let mut a = sys.lit("\"")
@@ -118,7 +118,7 @@ fn invalid() uses io {
     e.push(239)
     e.push(187)
     e.push(191)
-    bytes.append(inout e, sys.lit("{}"))
+    bytes.append(inout e, sys.lit(r"{}"))
     rt_bytes(e)
     // nesting: MAX_DEPTH is fine, one more is an error
     let mut deep: List[u8] = List.new()
@@ -139,7 +139,7 @@ fn invalid() uses io {
 
 fn reading() uses io {
     print("-- reading")
-    let src = sys.lit("{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"textDocument/hover\",\"params\":{\"position\":{\"line\":3,\"character\":12},\"list\":[true,false,null,\"s\",1.25,-4]}}")
+    let src = sys.lit("{{\"jsonrpc\":\"2.0\",\"id\":7,\"method\":\"textDocument/hover\",\"params\":{{\"position\":{{\"line\":3,\"character\":12}},\"list\":[true,false,null,\"s\",1.25,-4]}}}}")
     let d = match json.parse(src) {
         Ok(x) => x
         Err(_) => {
