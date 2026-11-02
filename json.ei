@@ -26,11 +26,13 @@
 //!
 //! Typed values: `Encode` and `Decode` turn Eider values into JSON and back (`to_json`,
 //! `from_json`, `from_json_with`), implemented here for the integers, bool, String, List,
-//! Option and Map[String, T]. For a record or enum of yours, derive them: an impl whose
-//! methods call `encode_record` / `decode_record` (records) or `encode_enum` / `decode_enum`
-//! (enums), which go over the type's fields with comptime reflection (eider-lang
-//! docs/site/reference/reflection.md), shaped by the `@json(...)` attribute on the type, its
-//! fields and its variants: `name`, `skip`, `default`, `flatten`, `rename_all`, `tag`,
+//! Option and Map[String, T]. A record or enum of yours has both with no impl: the traits'
+//! default methods (`@derive`, eider-lang C8.42) go over its fields or variants with comptime
+//! reflection (eider-lang docs/site/reference/reflection.md), so `to_json(x)` and
+//! `from_json(src)` work on any type whose parts have them. To replace that, write the impl
+//! (`impl json.Encode for T`; `encode_record` / `decode_record` and `encode_enum` /
+//! `decode_enum` are the defaults' bodies, for an impl that adds to them). They are
+//! shaped by the `@json(...)` attribute on the type, its fields and its variants: `name`, `skip`, `default`, `flatten`, `rename_all`, `tag`,
 //! `unknown`. Decoding is strict by default: a member no field takes is an error
 //! (`@json(unknown = "ignore")` on the type allows them), a missing member is an error unless
 //! the field is an Option or `@json(default)`, numbers must fit the field's type, and every
@@ -785,15 +787,27 @@ pub fn write_into(inout out: List[u8], d: Doc, id: u32) {
 /// field takes).
 pub attr json { name: str = "", skip: bool = false, default: bool = false, flatten: bool = false, rename_all: str = "", tag: str = "", unknown: str = "" }
 
-/// A value that can be written as JSON.
-pub trait Encode { fn encode(self, inout w: Writer) }
+/// A value that can be written as JSON. A record or enum of yours has it with no impl (`@derive`:
+/// the default `encode` goes over its fields or variants, `@json(...)` applies); write
+/// `impl json.Encode for T` to replace that.
+@derive
+pub trait Encode {
+    fn encode(self, inout w: Writer) {
+        comptime if is_enum[Self] { encode_enum(self, inout w) } else { encode_record(self, inout w) }
+    }
+}
 
 /// A value that can be read from JSON: `decode` reads the value `r` is at; `missing` is the
 /// value of a record field whose member is absent (Some(None) for an Option, else None: the
 /// member is required).
+///
+/// Like Encode, a record or enum of yours has it with no impl.
+@derive
 pub trait Decode {
-    fn decode(inout r: Reader) -> Result[Self, DecodeError]
-    fn missing() -> Option[Self]
+    fn decode(inout r: Reader) -> Result[Self, DecodeError] {
+        comptime if is_enum[Self] { decode_enum(inout r) } else { decode_record(inout r) }
+    }
+    fn missing() -> Option[Self] { None }
 }
 
 /// Why decoding failed, and where: `path` is a JSONPath to the value (`$.items[3].qty`).

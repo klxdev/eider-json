@@ -11,7 +11,8 @@ RFC 8259 JSON for [Eider](https://github.com/klxdev/eider-lang): an arena-based 
 - Numbers keep their exact text; integers that fit in i64 are also values.
 
 - Typed values: `json.to_json(x)` and `json.from_json(bytes)` for anything with `Encode` /
-  `Decode`; for your records and enums, derive them from their fields:
+  `Decode`. Your records and enums have both with no impl (eider-lang 0.4: the traits' default
+  methods go over the fields); `@json(...)` shapes them:
 
   ```eider
   import json
@@ -19,15 +20,11 @@ RFC 8259 JSON for [Eider](https://github.com/klxdev/eider-lang): an arena-based 
   @json(rename_all = "camelCase")
   type User = { @json(name = "id") user_id: u64, display_name: String, @json(default) score: i32 }
 
-  impl json.Encode for User {
-      fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
-  }
-
-  impl json.Decode for User {
-      fn decode(inout r: json.Reader) -> Result[User, json.DecodeError] { json.decode_record(inout r) }
-      fn missing() -> Option[User] { None }
-  }
+  // json.to_json(user), json.from_json(src): nothing to implement
   ```
+
+  Write `impl json.Encode for User { ... }` to replace the derived one (the owning package
+  can; `json.encode_record` and `json.decode_record` are the defaults' bodies).
 
   `from_json` parses within `limits()` (size, depth, string and container limits, no
   repeated keys), rejects members no field takes unless the type says

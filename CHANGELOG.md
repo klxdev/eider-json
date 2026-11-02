@@ -3,6 +3,14 @@
 eider-json's versions (semver). Before 1.0 the MAJOR.MINOR is the Eider toolchain's it goes
 with (`eider` in eider.toml), the PATCH its own.
 
+## 0.3.1
+
+For Eider 0.3 (`eider = "0.3"`), on a toolchain with reflective default implementations
+(eider-lang #99, C8.42; the 0.4 series, built from the 0.3 line). `Encode` and `Decode` are
+`@derive` traits whose default methods are `encode_record`/`encode_enum` and
+`decode_record`/`decode_enum`: a record or enum has them with no impl, and an `impl` still
+replaces them. Impls written for 0.3.0 keep working. `to_json`/`from_json` need no change.
+
 ## 0.3.0
 
 For Eider 0.3 (`eider = "0.3"`). Typed JSON with derived codecs (eider-json#1), using the

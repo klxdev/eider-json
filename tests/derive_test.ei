@@ -4,7 +4,8 @@ import json
 
 // Derived codecs (json.encode_record, decode_record, encode_enum, decode_enum) with
 // `@json(...)`: renames, skips, defaults, flattening, discriminators, unknown members,
-// limits and paths in errors.
+// limits and paths in errors. No type here has an impl: the traits are `@derive` (eider-lang
+// C8.42); `Custom` implements them to replace the derived codecs.
 
 @json(rename_all = "camelCase")
 type User = {
@@ -19,50 +20,22 @@ type User = {
 
 type Meta = { created: i64, @json(name = "by") author: String }
 
-impl json.Encode for User {
-    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
-}
-
-impl json.Decode for User {
-    fn decode(inout r: json.Reader) -> Result[User, json.DecodeError] { json.decode_record(inout r) }
-    fn missing() -> Option[User] { None }
-}
-
-impl json.Encode for Meta {
-    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
-}
-
-impl json.Decode for Meta {
-    fn decode(inout r: json.Reader) -> Result[Meta, json.DecodeError] { json.decode_record(inout r) }
-    fn missing() -> Option[Meta] { None }
-}
-
 @json(tag = "kind", rename_all = "snake_case")
 type Shape =
     | Circle(radius: i64)
     | @json(name = "box") Rect(w: i64, h: i64)
     | Empty
 
-impl json.Encode for Shape {
-    fn encode(self, inout w: json.Writer) { json.encode_enum(self, inout w) }
-}
-
-impl json.Decode for Shape {
-    fn decode(inout r: json.Reader) -> Result[Shape, json.DecodeError] { json.decode_enum(inout r) }
-    fn missing() -> Option[Shape] { None }
-}
-
 @json(unknown = "ignore")
 type Loose = { a: i32, shapes: List[Shape] }
 
-impl json.Encode for Loose {
-    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
+type Custom = { a: i32 }
+
+impl json.Encode for Custom {
+    fn encode(self, inout w: json.Writer) { w.string("custom".bytes()) }
 }
 
-impl json.Decode for Loose {
-    fn decode(inout r: json.Reader) -> Result[Loose, json.DecodeError] { json.decode_record(inout r) }
-    fn missing() -> Option[Loose] { None }
-}
+type Holds = { c: Custom, n: i32 }
 
 fn out(b: List[u8]) uses io { io.outln(b) }
 
@@ -92,7 +65,13 @@ fn main() uses io {
     out(json.to_json(Circle(2)))
     out(json.to_json(Rect(3, 4)))
     out(json.to_json(Empty))
+    out(json.to_json(Holds(Custom(1), 2)))
     print("-- decode")
+    let h: Result[Holds, json.DecodeError] = json.from_json("{{\"c\": {{\"a\": 4}}, \"n\": 2}}".bytes())
+    match h {
+        Ok(x) => out(json.to_json(x))
+        Err(e) => out(json.decode_error_text(e))
+    }
     user("{{\"id\": 9, \"displayName\": \"Bob\", \"email\": \"b@x\", \"tags\": [], \"created\": 5, \"by\": \"me\"}}")
     user("{{\"id\": 9, \"displayName\": \"Bob\", \"tags\": [\"x\"], \"score\": -4, \"created\": 5, \"by\": \"me\"}}")
     loose("{{\"a\": 1, \"extra\": true, \"shapes\": [\"empty\", {{\"kind\": \"circle\", \"radius\": 3}}, {{\"kind\": \"box\", \"w\": 1, \"h\": 2}}]}}")

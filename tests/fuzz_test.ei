@@ -30,34 +30,6 @@ type Audit = { created: i64, by: String }
 @json(tag = "state")
 type Status = | Open | Shipped(carrier: String, days: u8) | Cancelled(reason: String)
 
-impl json.Encode for Order {
-    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
-}
-impl json.Decode for Order {
-    fn decode(inout r: json.Reader) -> Result[Order, json.DecodeError] { json.decode_record(inout r) }
-    fn missing() -> Option[Order] { None }
-}
-impl json.Encode for Line {
-    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
-}
-impl json.Decode for Line {
-    fn decode(inout r: json.Reader) -> Result[Line, json.DecodeError] { json.decode_record(inout r) }
-    fn missing() -> Option[Line] { None }
-}
-impl json.Encode for Audit {
-    fn encode(self, inout w: json.Writer) { json.encode_record(self, inout w) }
-}
-impl json.Decode for Audit {
-    fn decode(inout r: json.Reader) -> Result[Audit, json.DecodeError] { json.decode_record(inout r) }
-    fn missing() -> Option[Audit] { None }
-}
-impl json.Encode for Status {
-    fn encode(self, inout w: json.Writer) { json.encode_enum(self, inout w) }
-}
-impl json.Decode for Status {
-    fn decode(inout r: json.Reader) -> Result[Status, json.DecodeError] { json.decode_enum(inout r) }
-    fn missing() -> Option[Status] { None }
-}
 
 type Rng = { state: u64 }
 

@@ -3,7 +3,9 @@
 {"kind":"circle","radius":2}
 {"kind":"box","w":3,"h":4}
 "empty"
+{"c":"custom","n":2}
 -- decode
+{"c":"custom","n":2}
 {"id":9,"displayName":"Bob","email":"b@x","tags":[],"score":0,"created":5,"by":"me"}
 {"id":9,"displayName":"Bob","email":null,"tags":["x"],"score":-4,"created":5,"by":"me"}
 {"a":1,"shapes":["empty",{"kind":"circle","radius":3},{"kind":"box","w":1,"h":2}]}
