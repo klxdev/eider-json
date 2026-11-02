@@ -793,7 +793,7 @@ pub attr json { name: str = "", skip: bool = false, default: bool = false, flatt
 @derive
 pub trait Encode {
     fn encode(self, inout w: Writer) {
-        comptime if is_enum[Self] { encode_enum(self, inout w) } else { encode_record(self, inout w) }
+        comptime if is_enum_type[Self] { encode_enum(self, inout w) } else { encode_record(self, inout w) }
     }
 }
 
@@ -805,7 +805,7 @@ pub trait Encode {
 @derive
 pub trait Decode {
     fn decode(inout r: Reader) -> Result[Self, DecodeError] {
-        comptime if is_enum[Self] { decode_enum(inout r) } else { decode_record(inout r) }
+        comptime if is_enum_type[Self] { decode_enum(inout r) } else { decode_record(inout r) }
     }
     fn missing() -> Option[Self] { None }
 }
