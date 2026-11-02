@@ -3,6 +3,11 @@
 eider-json's versions (semver). Before 1.0 the MAJOR.MINOR is the Eider toolchain's it goes
 with (`eider` in eider.toml), the PATCH its own.
 
+## Unreleased
+
+- `json.to_string(x) -> String` and `json.from_string[T](s: String)` next to `to_json` / `from_json`
+  (eider-json#2); the `List[u8]` functions are unchanged.
+
 ## 0.4.0
 
 For Eider 0.4 (`eider = "0.4"`). `Encode` and `Decode` are `@derive` traits (eider-lang #99,

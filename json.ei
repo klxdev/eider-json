@@ -29,7 +29,7 @@
 //! Option and Map[String, T]. A record or enum of yours has both with no impl: the traits'
 //! default methods (`@derive`, eider-lang C8.42) go over its fields or variants with comptime
 //! reflection (eider-lang docs/site/reference/reflection.md), so `to_json(x)` and
-//! `from_json(src)` work on any type whose parts have them. To replace that, write the impl
+//! `from_json(src)` (and `to_string` / `from_string`, with a `String` in and out) work on any type whose parts have them. To replace that, write the impl
 //! (`impl json.Encode for T`; `encode_record` / `decode_record` and `encode_enum` /
 //! `decode_enum` are the defaults' bodies, for an impl that adds to them). They are
 //! shaped by the `@json(...)` attribute on the type, its fields and its variants: `name`, `skip`, `default`, `flatten`, `rename_all`, `tag`,
@@ -831,6 +831,14 @@ pub fn to_json[T: Encode](x: T) -> List[u8] {
 /// The value of type T in the JSON text `src`, parsed within `limits()` (repeated keys are
 /// errors).
 pub fn from_json[T: Decode](src: List[u8]) -> Result[T, DecodeError] { from_json_with(src, limits()) }
+
+/// `x` as compact JSON text, as a `String`. The encoder writes only UTF-8, so this can't fail.
+pub fn to_string[T: Encode](x: T) -> String {
+    String.from_bytes(to_json(x)).unwrap_or(String.from(""))
+}
+
+/// The value of type T in the JSON text `s` (`from_json(s.bytes())`).
+pub fn from_string[T: Decode](s: String) -> Result[T, DecodeError] { from_json(s.bytes()) }
 
 pub fn from_json_with[T: Decode](src: List[u8], lim: Limits) -> Result[T, DecodeError] {
     let d = match parse_with(src, lim) {

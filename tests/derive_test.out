@@ -21,6 +21,10 @@ $.shapes[0]: missing the discriminator `kind`
 $.shapes[0]: unknown member "color"
 $.a: not an i32 (out of range, or not an integer)
 $: nested too deeply at line 1, column 9 (byte 8)
+-- strings
+{"kind":"circle","radius":5}
+{"kind":"box","w":7,"h":8}
+$: unexpected character, expected a value at line 1, column 5 (byte 4)
 -- part of a parsed document
 {"created":3,"by":"x"}
 6

@@ -95,6 +95,18 @@ fn main() uses io {
         Ok(_) => print("deep ok?")
         Err(e) => out(json.decode_error_text(e))
     }
+    print("-- strings")
+    print(json.to_string(Circle(5)))
+    let sr: Result[Shape, json.DecodeError] = json.from_string(String.from("{{\"kind\": \"box\", \"w\": 7, \"h\": 8}}"))
+    match sr {
+        Ok(x) => print(json.to_string(x))
+        Err(e) => out(json.decode_error_text(e))
+    }
+    let sb: Result[List[i64], json.DecodeError] = json.from_string(String.from("[1, x]"))
+    match sb {
+        Ok(_) => print("bad ok?")
+        Err(e) => out(json.decode_error_text(e))
+    }
     print("-- part of a parsed document")
     let d = json.parse("{{\"meta\": {{\"created\": 3, \"by\": \"x\"}}}}".bytes()).unwrap()
     let mut rd = json.reader(d, json.field(d, d.root, "meta").unwrap())

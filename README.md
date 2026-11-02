@@ -26,6 +26,9 @@ RFC 8259 JSON for [Eider](https://github.com/klxdev/eider-lang): an arena-based 
   Write `impl json.Encode for User { ... }` to replace the derived one (the owning package
   can; `json.encode_record` and `json.decode_record` are the defaults' bodies).
 
+  `json.to_string(x) -> String` and `json.from_string(s: String)` are the same with text in
+  and out (the encoder writes only UTF-8, so no conversion to handle).
+
   `from_json` parses within `limits()` (size, depth, string and container limits, no
   repeated keys), rejects members no field takes unless the type says
   `@json(unknown = "ignore")`, and names the place of every error (`$.items[3].qty`).
