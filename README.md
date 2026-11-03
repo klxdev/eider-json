@@ -12,13 +12,13 @@ RFC 8259 JSON for [Eider](https://github.com/klxdev/eider-lang): an arena-based 
 
 - Typed values: `json.to_json(x)` and `json.from_json(bytes)` for anything with `Encode` /
   `Decode`. Your records and enums have both with no impl (eider-lang 0.4: the traits' default
-  methods go over the fields); `@json(...)` shapes them:
+  methods go over the fields); `@[json(...)]` shapes them:
 
   ```eider
   import json
 
-  @json(rename_all = "camelCase")
-  type User = { @json(name = "id") user_id: u64, display_name: String, @json(default) score: i32 }
+  @[json(rename_all = "camelCase")]
+  type User = { @[json(name = "id")] user_id: u64, display_name: String, @[json(default)] score: i32 }
 
   // json.to_json(user), json.from_json(src): nothing to implement
   ```
@@ -31,7 +31,7 @@ RFC 8259 JSON for [Eider](https://github.com/klxdev/eider-lang): an arena-based 
 
   `from_json` parses within `limits()` (size, depth, string and container limits, no
   repeated keys), rejects members no field takes unless the type says
-  `@json(unknown = "ignore")`, and names the place of every error (`$.items[3].qty`).
+  `@[json(unknown = "ignore")]`, and names the place of every error (`$.items[3].qty`).
   eider-lang's guide "Deriving JSON" (docs/site/guide/json.md) walks through it.
 
 The module documentation (`//!` at the top of json.ei) has the details and limits.

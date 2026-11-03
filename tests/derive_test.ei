@@ -3,30 +3,30 @@ import std.io
 import json
 
 // Derived codecs (json.encode_record, decode_record, encode_enum, decode_enum) with
-// `@json(...)`: renames, skips, defaults, flattening, discriminators, unknown members,
-// limits and paths in errors. No type here has an impl: the traits are `@derive` (eider-lang
+// `@[json(...)]`: renames, skips, defaults, flattening, discriminators, unknown members,
+// limits and paths in errors. No type here has an impl: the traits are `@[derive]` (eider-lang
 // C8.42); `Custom` implements them to replace the derived codecs.
 
-@json(rename_all = "camelCase")
+@[json(rename_all = "camelCase")]
 type User = {
-    @json(name = "id") user_id: u64,
+    @[json(name = "id")] user_id: u64,
     display_name: String,
     email: Option[String],
     tags: List[String],
-    @json(default) score: i32,
-    @json(skip) cache: List[u8],
-    @json(flatten) meta: Meta,
+    @[json(default)] score: i32,
+    @[json(skip)] cache: List[u8],
+    @[json(flatten)] meta: Meta,
 }
 
-type Meta = { created: i64, @json(name = "by") author: String }
+type Meta = { created: i64, @[json(name = "by")] author: String }
 
-@json(tag = "kind", rename_all = "snake_case")
+@[json(tag = "kind", rename_all = "snake_case")]
 type Shape =
     | Circle(radius: i64)
-    | @json(name = "box") Rect(w: i64, h: i64)
+    | @[json(name = "box")] Rect(w: i64, h: i64)
     | Empty
 
-@json(unknown = "ignore")
+@[json(unknown = "ignore")]
 type Loose = { a: i32, shapes: List[Shape] }
 
 type Custom = { a: i32 }

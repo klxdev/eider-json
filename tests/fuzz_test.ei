@@ -10,24 +10,24 @@ import json
 // mutants are a fixed sequence (a seeded PRNG), so the counts below are this file's golden
 // output; FUZZ_ITERS=<n> runs n mutants per seed instead (scripts/fuzz.sh).
 
-@json(rename_all = "snake_case")
+@[json(rename_all = "snake_case")]
 type Order = {
     id: u64,
-    @json(name = "who") customer: String,
+    @[json(name = "who")] customer: String,
     lines: List[Line],
     note: Option[String],
-    @json(default) priority: i32,
-    @json(flatten) audit: Audit,
+    @[json(default)] priority: i32,
+    @[json(flatten)] audit: Audit,
     status: Status,
     tags: Map[String, i64],
 }
 
 type Line = { sku: String, qty: u32, price: i64 }
 
-@json(unknown = "ignore")
+@[json(unknown = "ignore")]
 type Audit = { created: i64, by: String }
 
-@json(tag = "state")
+@[json(tag = "state")]
 type Status = | Open | Shipped(carrier: String, days: u8) | Cancelled(reason: String)
 
 

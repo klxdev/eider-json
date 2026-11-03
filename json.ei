@@ -27,15 +27,15 @@
 //! Typed values: `Encode` and `Decode` turn Eider values into JSON and back (`to_json`,
 //! `from_json`, `from_json_with`), implemented here for the integers, bool, String, List,
 //! Option and Map[String, T]. A record or enum of yours has both with no impl: the traits'
-//! default methods (`@derive`, eider-lang C8.42) go over its fields or variants with comptime
+//! default methods (`@[derive]`, eider-lang C8.42) go over its fields or variants with comptime
 //! reflection (eider-lang docs/site/reference/reflection.md), so `to_json(x)` and
 //! `from_json(src)` (and `to_string` / `from_string`, with a `String` in and out) work on any type whose parts have them. To replace that, write the impl
 //! (`impl json.Encode for T`; `encode_record` / `decode_record` and `encode_enum` /
 //! `decode_enum` are the defaults' bodies, for an impl that adds to them). They are
-//! shaped by the `@json(...)` attribute on the type, its fields and its variants: `name`, `skip`, `default`, `flatten`, `rename_all`, `tag`,
+//! shaped by the `@[json(...)]` attribute on the type, its fields and its variants: `name`, `skip`, `default`, `flatten`, `rename_all`, `tag`,
 //! `unknown`. Decoding is strict by default: a member no field takes is an error
-//! (`@json(unknown = "ignore")` on the type allows them), a missing member is an error unless
-//! the field is an Option or `@json(default)`, numbers must fit the field's type, and every
+//! (`@[json(unknown = "ignore")]` on the type allows them), a missing member is an error unless
+//! the field is an Option or `@[json(default)]`, numbers must fit the field's type, and every
 //! error names its place as a JSONPath (`$.lines[2].qty: not a u32 ...`). The decoders read
 //! a parsed document (`Doc`) through a `Reader`; a format-neutral data model (eider-lang #100)
 //! can sit under the same traits later.
@@ -787,10 +787,10 @@ pub fn write_into(inout out: List[u8], d: Doc, id: u32) {
 /// field takes).
 pub attr json { name: str = "", skip: bool = false, default: bool = false, flatten: bool = false, rename_all: str = "", tag: str = "", unknown: str = "" }
 
-/// A value that can be written as JSON. A record or enum of yours has it with no impl (`@derive`:
-/// the default `encode` goes over its fields or variants, `@json(...)` applies); write
+/// A value that can be written as JSON. A record or enum of yours has it with no impl (`@[derive]`:
+/// the default `encode` goes over its fields or variants, `@[json(...)]` applies); write
 /// `impl json.Encode for T` to replace that.
-@derive
+@[derive]
 pub trait Encode {
     fn encode(self, inout w: Writer) {
         comptime if is_enum_type[Self] { encode_enum(self, inout w) } else { encode_record(self, inout w) }
@@ -802,7 +802,7 @@ pub trait Encode {
 /// member is required).
 ///
 /// Like Encode, a record or enum of yours has it with no impl.
-@derive
+@[derive]
 pub trait Decode {
     fn decode(inout r: Reader) -> Result[Self, DecodeError] {
         comptime if is_enum_type[Self] { decode_enum(inout r) } else { decode_record(inout r) }
@@ -1018,7 +1018,7 @@ fn sort_strings(inout xs: List[String]) {
     }
 }
 
-/// A record as an object: one member per field (`@json`: renamed, skipped, flattened).
+/// A record as an object: one member per field (`@[json]`: renamed, skipped, flattened).
 pub fn encode_record[T](x: T, inout w: Writer) {
     w.begin_object()
     comptime for f in fields(T) {
@@ -1041,7 +1041,7 @@ fn encode_flat[F: Encode](x: F, inout w: Writer) {
 }
 
 /// An enum: a variant without fields as its name (`"Empty"`), one with fields as an object
-/// with the discriminator first (`{"type": "Circle", "r": 2}`; `@json(tag = "kind")` on the
+/// with the discriminator first (`{"type": "Circle", "r": 2}`; `@[json(tag = "kind")]` on the
 /// enum names it).
 pub fn encode_enum[T](x: T, inout w: Writer) {
     comptime for v in variants(T) {
@@ -1351,9 +1351,9 @@ fn key_text(d: Doc, obj: u32, i: u32) -> List[u8] {
     }
 }
 
-/// A record from an object: each field from its member (`@json`: renamed, skipped,
+/// A record from an object: each field from its member (`@[json]`: renamed, skipped,
 /// defaulted, flattened); a member no field takes is an error unless the record's
-/// `@json(unknown = "ignore")` says otherwise.
+/// `@[json(unknown = "ignore")]` says otherwise.
 pub fn decode_record[T](inout r: Reader) -> Result[T, DecodeError] {
     if r.kind() != OBJECT { return Err(r.expected("an object")) }
     let outer = r.flat == 0
@@ -1386,7 +1386,7 @@ pub fn decode_record[T](inout r: Reader) -> Result[T, DecodeError] {
 }
 
 /// An enum from a string (a variant without fields) or an object whose discriminator member
-/// (`type`, or the enum's `@json(tag = ...)`) names the variant.
+/// (`type`, or the enum's `@[json(tag = ...)]`) names the variant.
 pub fn decode_enum[T](inout r: Reader) -> Result[T, DecodeError] {
     let k = r.kind()
     let mut name: List[u8] = List.new()
