@@ -18,7 +18,7 @@ JSON has no NaN or infinity
 {"Line":{"len":9}}
 {"f":3.0,"bytes":"aGk=","flags":{"x":true}}
 -- errors
-{"id":9,"displayName":"Bob","email":null,"tags":[],"score":0,"created":5,"by":"me","mail":null}
+unknown field `admin`
 missing field `displayName`
 id: the number is out of range
 tags[1]: expected a string, found an integer
@@ -26,12 +26,18 @@ a key repeated in an object at line 1, column 15 (byte 14)
 expected a map, found a list
 shapes[0]: unknown variant `hexagon`
 shapes[0]: missing the tag `kind`
-{"a":1,"shapes":[{"kind":"circle","radius":3}]}
+shapes[0]: unknown field `color`
 a: expected an i32, the number is out of range
 a: expected an integer, found a number
 expected a map with the variant's name as its one key
 unknown variant `Ring`
 nested too deeply at line 1, column 9 (byte 8)
+-- flatten and adapters
+{"name":"n","x":4}
+unknown field `nme`
+{"id":1,"big":"12345678901234"}
+{"id":2,"big":"77"}
+big: expected a string, found an integer
 -- strings
 {"kind":"circle","radius":5}
 {"kind":"box","w":7,"h":8}

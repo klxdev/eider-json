@@ -1052,7 +1052,7 @@ impl serial.Deserializer for Deserializer {
         match as_str(self.doc, self.node) {
             Some(s) => match time.parse_rfc3339(s) {
                 Ok(t) => Ok(t)
-                Err(m) => Err(serial.Error(self.path.copy(), m.bytes()))
+                Err(m) => Err(serial.error_at(self.path.copy(), m.bytes()))
             }
             None => Err(serial.expected(self, "an RFC 3339 time"))
         }
@@ -1115,7 +1115,7 @@ pub fn from_string[T: serial.Deserialize](s: String) -> Result[T, serial.Error] 
 pub fn from_bytes_with[T: serial.Deserialize](src: List[u8], lim: Limits) -> Result[T, serial.Error] {
     let d = match parse_with(src, lim) {
         Ok(x) => x
-        Err(e) => { return Err(serial.Error(List.new(), error_text(e))) }
+        Err(e) => { return Err(serial.error_at(List.new(), error_text(e))) }
     }
     T.deserialize(deserializer(d, d.root))
 }

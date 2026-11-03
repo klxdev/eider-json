@@ -1,6 +1,7 @@
 import std.bytes
 import std.io
 import std.serial
+import json.tests.as_text
 import json
 
 // Derived serialization (`@[derive(Serialize, Deserialize)]`, eider-lang C8.62) through the JSON
@@ -40,6 +41,15 @@ type Loose = { a: i32, shapes: List[Shape] }
 
 @[derive(Serialize, Deserialize)]
 type Mixed = { f: f64, bytes: serial.Bytes, flags: Map[String, bool] }
+
+@[derive(Serialize, Deserialize)]
+type Inner = { x: i32 }
+
+@[derive(Serialize, Deserialize)]
+type Outer = { name: String, @[json(flatten)] inner: Inner }
+
+@[derive(Serialize, Deserialize)]
+type Wrapped = { id: i64, @[json(with = as_text)] big: i64 }
 
 type Custom = { a: i32 }
 
@@ -150,6 +160,28 @@ fn main() uses io {
     let r: Result[List[i64], serial.Error] = json.from_bytes_with(deep.bytes(), lim)
     match r {
         Ok(_) => print("deep ok?")
+        Err(e) => out(serial.error_text(e))
+    }
+    print("-- flatten and adapters")
+    let o1: Result[Outer, serial.Error] = json.from_bytes("{{\"name\": \"n\", \"x\": 4}}".bytes())
+    match o1 {
+        Ok(x) => out(text(json.to_bytes(x)))
+        Err(e) => out(serial.error_text(e))
+    }
+    let o2: Result[Outer, serial.Error] = json.from_bytes("{{\"name\": \"n\", \"x\": 4, \"nme\": 1}}".bytes())
+    match o2 {
+        Ok(x) => out(text(json.to_bytes(x)))
+        Err(e) => out(serial.error_text(e))
+    }
+    out(text(json.to_bytes(Wrapped(1, 12345678901234))))
+    let w1: Result[Wrapped, serial.Error] = json.from_bytes("{{\"id\": 2, \"big\": \"77\"}}".bytes())
+    match w1 {
+        Ok(x) => out(text(json.to_bytes(x)))
+        Err(e) => out(serial.error_text(e))
+    }
+    let w2: Result[Wrapped, serial.Error] = json.from_bytes("{{\"id\": 2, \"big\": 77}}".bytes())
+    match w2 {
+        Ok(x) => out(text(json.to_bytes(x)))
         Err(e) => out(serial.error_text(e))
     }
     print("-- strings")

@@ -1,0 +1,14 @@
+import std.bytes
+import std.serial
+
+// A per-field adapter (`@[json(with = as_text)]`, eider-lang #164): an i64 written as a JSON string.
+
+pub fn serialize[S: serial.Serializer](v: i64, inout s: S) -> Result[(), serial.Error] { s.string(bytes.from_i64(v)) }
+
+pub fn deserialize[D: serial.Deserializer](d: D) -> Result[i64, serial.Error] {
+    let t = d.read_string()?
+    match bytes.parse_u64(t) {
+        Some(n) => Ok(n as i64)
+        None => Err(serial.fail(d, "expected digits"))
+    }
+}
