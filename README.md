@@ -10,29 +10,30 @@ RFC 8259 JSON for [Eider](https://github.com/klxdev/eider-lang): an arena-based 
   UTF-8 becomes U+FFFD, so the output is always valid JSON).
 - Numbers keep their exact text; integers that fit in i64 are also values.
 
-- Typed values: `json.to_json(x)` and `json.from_json(bytes)` for anything with `Encode` /
-  `Decode`. Your records and enums have both with no impl (eider-lang 0.4: the traits' default
-  methods go over the fields); `@[json(...)]` shapes them:
+- Typed values: JSON is the format for `std/serial` (eider-lang 0.6). A type that is
+  `Serialize` / `Deserialize` goes to JSON with `json.to_bytes(x)` / `json.to_string(x)` and comes
+  back with `json.from_bytes(src)` / `json.from_string(s)` (the type to read is the expected
+  one). Your records and enums opt in with `@[derive(Serialize, Deserialize)]`;
+  `@[serial(...)]` shapes them for every format and `@[json(...)]` for JSON only:
 
   ```eider
+  import std.serial
   import json
 
-  @[json(rename_all = "camelCase")]
-  type User = { @[json(name = "id")] user_id: u64, display_name: String, @[json(default)] score: i32 }
+  @[derive(Serialize, Deserialize), serial(rename_all = "camelCase")]
+  type User = { @[serial(name = "id")] user_id: u64, display_name: String, @[serial(default)] score: i32 }
 
-  // json.to_json(user), json.from_json(src): nothing to implement
+  // let r: Result[User, serial.Error] = json.from_string(text)
+  // json.to_string(user)
   ```
 
-  Write `impl json.Encode for User { ... }` to replace the derived one (the owning package
-  can; `json.encode_record` and `json.decode_record` are the defaults' bodies).
+  Write `impl serial.Serialize for User { ... }` to replace the derived one. The format itself
+  is `json.Serializer` and `json.Deserializer` (`json.deserializer(doc, id)` reads part of a
+  document that is parsed already).
 
-  `json.to_string(x) -> String` and `json.from_string(s: String)` are the same with text in
-  and out (the encoder writes only UTF-8, so no conversion to handle).
-
-  `from_json` parses within `limits()` (size, depth, string and container limits, no
+  `from_bytes` parses within `limits()` (size, depth, string and container limits, no
   repeated keys), rejects members no field takes unless the type says
-  `@[json(unknown = "ignore")]`, and names the place of every error (`$.items[3].qty`).
-  eider-lang's guide "Deriving JSON" (docs/site/guide/json.md) walks through it.
+  `@[json(unknown = "ignore")]`, and names the place of every error (`items[3].qty`).
 
 The module documentation (`//!` at the top of json.ei) has the details and limits.
 

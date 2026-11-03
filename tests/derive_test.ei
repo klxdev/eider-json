@@ -1,80 +1,134 @@
 import std.bytes
 import std.io
+import std.serial
 import json
 
-// Derived codecs (json.encode_record, decode_record, encode_enum, decode_enum) with
-// `@[json(...)]`: renames, skips, defaults, flattening, discriminators, unknown members,
-// limits and paths in errors. No type here has an impl: the traits are `@[derive]` (eider-lang
-// C8.42); `Custom` implements them to replace the derived codecs.
+// Derived serialization (`@[derive(Serialize, Deserialize)]`, eider-lang C8.62) through the JSON
+// format, with `@[serial(...)]` for every format and `@[json(...)]` for this one: renames, skips,
+// defaults, flattening, tags, unknown members, limits and paths in errors. `Custom` has its own
+// impl, which the derived code of its holder uses.
 
-@[json(rename_all = "camelCase")]
+@[derive(Serialize, Deserialize), serial(rename_all = "camelCase")]
 type User = {
-    @[json(name = "id")] user_id: u64,
+    @[serial(name = "id")] user_id: u64,
     display_name: String,
     email: Option[String],
     tags: List[String],
-    @[json(default)] score: i32,
-    @[json(skip)] cache: List[u8],
+    @[serial(default)] score: i32,
+    @[serial(skip)] cache: List[u8],
     @[json(flatten)] meta: Meta,
+    @[json(name = "mail"), toml(name = "email_address")] contact: Option[String],
 }
 
-type Meta = { created: i64, @[json(name = "by")] author: String }
+@[derive(Serialize, Deserialize)]
+type Meta = { created: i64, @[serial(name = "by")] author: String }
 
-@[json(tag = "kind", rename_all = "snake_case")]
+@[derive(Serialize, Deserialize), serial(tag = "kind", rename_all = "snake_case")]
 type Shape =
     | Circle(radius: i64)
-    | @[json(name = "box")] Rect(w: i64, h: i64)
+    | @[serial(name = "box")] Rect(w: i64, h: i64)
     | Empty
 
-@[json(unknown = "ignore")]
+// no tag key: a variant with fields is a record under its name
+@[derive(Serialize, Deserialize)]
+type Plain =
+    | Dot
+    | Line(len: i64)
+
+@[derive(Serialize, Deserialize), json(unknown = "ignore")]
 type Loose = { a: i32, shapes: List[Shape] }
+
+@[derive(Serialize, Deserialize)]
+type Mixed = { f: f64, bytes: serial.Bytes, flags: Map[String, bool] }
 
 type Custom = { a: i32 }
 
-impl json.Encode for Custom {
-    fn encode(self, inout w: json.Writer) { w.string("custom".bytes()) }
+impl serial.Serialize for Custom {
+    fn serialize[S: serial.Serializer](self, inout s: S) -> Result[(), serial.Error] { s.string("custom".bytes()) }
 }
 
+impl serial.Deserialize for Custom {
+    fn deserialize[D: serial.Deserializer](d: D) -> Result[Custom, serial.Error] {
+        let t = d.read_string()?
+        if bytes.eq(t, "custom".bytes()) { return Ok(Custom(4)) }
+        Err(serial.fail(d, "expected \"custom\""))
+    }
+}
+
+@[derive(Serialize, Deserialize)]
 type Holds = { c: Custom, n: i32 }
 
 fn out(b: List[u8]) uses io { io.outln(b) }
 
+fn text(b: Result[List[u8], serial.Error]) -> List[u8] {
+    match b {
+        Ok(x) => x
+        Err(e) => serial.error_text(e)
+    }
+}
+
 fn user(src: str) uses io {
-    let r: Result[User, json.DecodeError] = json.from_json(src.bytes())
+    let r: Result[User, serial.Error] = json.from_bytes(src.bytes())
     match r {
-        Ok(u) => out(json.to_json(u))
-        Err(e) => out(json.decode_error_text(e))
+        Ok(u) => out(text(json.to_bytes(u)))
+        Err(e) => out(serial.error_text(e))
     }
 }
 
 fn loose(src: str) uses io {
-    let r: Result[Loose, json.DecodeError] = json.from_json(src.bytes())
+    let r: Result[Loose, serial.Error] = json.from_bytes(src.bytes())
     match r {
-        Ok(u) => out(json.to_json(u))
-        Err(e) => out(json.decode_error_text(e))
+        Ok(u) => out(text(json.to_bytes(u)))
+        Err(e) => out(serial.error_text(e))
+    }
+}
+
+fn plain(src: str) uses io {
+    let r: Result[Plain, serial.Error] = json.from_bytes(src.bytes())
+    match r {
+        Ok(u) => out(text(json.to_bytes(u)))
+        Err(e) => out(serial.error_text(e))
     }
 }
 
 fn main() uses io {
-    print("-- encode")
+    print("-- serialize")
     let mut tags: List[String] = List.new()
     tags.push(String.from("a"))
     tags.push(String.from("b \"q\""))
-    let u = User(7, String.from("Ada"), None, tags, 3, List.new(), Meta(1700, String.from("sys")))
-    out(json.to_json(u))
-    out(json.to_json(Circle(2)))
-    out(json.to_json(Rect(3, 4)))
-    out(json.to_json(Empty))
-    out(json.to_json(Holds(Custom(1), 2)))
-    print("-- decode")
-    let h: Result[Holds, json.DecodeError] = json.from_json("{{\"c\": {{\"a\": 4}}, \"n\": 2}}".bytes())
+    let u = User(7, String.from("Ada"), None, tags, 3, List.new(), Meta(1700, String.from("sys")), Some(String.from("a@x")))
+    out(text(json.to_bytes(u)))
+    out(text(json.to_bytes(Circle(2))))
+    out(text(json.to_bytes(Rect(3, 4))))
+    out(text(json.to_bytes(Empty)))
+    out(text(json.to_bytes(Line(5))))
+    out(text(json.to_bytes(Dot)))
+    out(text(json.to_bytes(Holds(Custom(1), 2))))
+    let mut flags: Map[String, bool] = Map.new()
+    flags.insert(String.from("z"), true)
+    flags.insert(String.from("a"), false)
+    out(text(json.to_bytes(Mixed(2.5, serial.Bytes("hi".bytes()), flags))))
+    out(text(json.to_bytes(Mixed(1.0e16, serial.Bytes(List.new()), Map.new()))))
+    match json.to_bytes(Mixed(0.0 / 0.0, serial.Bytes(List.new()), Map.new())) {
+        Ok(_) => print("nan ok?")
+        Err(e) => out(serial.error_text(e))
+    }
+    print("-- deserialize")
+    let h: Result[Holds, serial.Error] = json.from_bytes("{{\"c\": \"custom\", \"n\": 2}}".bytes())
     match h {
-        Ok(x) => out(json.to_json(x))
-        Err(e) => out(json.decode_error_text(e))
+        Ok(x) => out(text(json.to_bytes(x)))
+        Err(e) => out(serial.error_text(e))
     }
     user("{{\"id\": 9, \"displayName\": \"Bob\", \"email\": \"b@x\", \"tags\": [], \"created\": 5, \"by\": \"me\"}}")
-    user("{{\"id\": 9, \"displayName\": \"Bob\", \"tags\": [\"x\"], \"score\": -4, \"created\": 5, \"by\": \"me\"}}")
+    user("{{\"id\": 9, \"displayName\": \"Bob\", \"tags\": [\"x\"], \"score\": -4, \"created\": 5, \"by\": \"me\", \"mail\": \"m@x\"}}")
     loose("{{\"a\": 1, \"extra\": true, \"shapes\": [\"empty\", {{\"kind\": \"circle\", \"radius\": 3}}, {{\"kind\": \"box\", \"w\": 1, \"h\": 2}}]}}")
+    plain("\"Dot\"")
+    plain("{{\"Line\": {{\"len\": 9}}}}")
+    let m: Result[Mixed, serial.Error] = json.from_bytes("{{\"f\": 3, \"bytes\": \"aGk=\", \"flags\": {{\"x\": true}}}}".bytes())
+    match m {
+        Ok(x) => out(text(json.to_bytes(x)))
+        Err(e) => out(serial.error_text(e))
+    }
     print("-- errors")
     user("{{\"id\": 9, \"displayName\": \"Bob\", \"tags\": [], \"created\": 5, \"by\": \"me\", \"admin\": true}}")
     user("{{\"id\": 9, \"tags\": [], \"created\": 5, \"by\": \"me\"}}")
@@ -86,36 +140,45 @@ fn main() uses io {
     loose("{{\"a\": 1, \"shapes\": [{{\"radius\": 3}}]}}")
     loose("{{\"a\": 1, \"shapes\": [{{\"kind\": \"circle\", \"radius\": 3, \"color\": 1}}]}}")
     loose("{{\"a\": 99999999999, \"shapes\": []}}")
+    loose("{{\"a\": 1.5, \"shapes\": []}}")
+    plain("{{\"Line\": {{\"len\": 1}}, \"Dot\": {{}}}}")
+    plain("{{\"Ring\": {{}}}}")
     let mut deep = String.from("")
     for i in 0..100 { deep.push_str("[") }
     let mut lim = json.limits()
     lim.max_depth = 8
-    let r: Result[List[i64], json.DecodeError] = json.from_json_with(deep.bytes(), lim)
+    let r: Result[List[i64], serial.Error] = json.from_bytes_with(deep.bytes(), lim)
     match r {
         Ok(_) => print("deep ok?")
-        Err(e) => out(json.decode_error_text(e))
+        Err(e) => out(serial.error_text(e))
     }
     print("-- strings")
-    print(json.to_string(Circle(5)))
-    let sr: Result[Shape, json.DecodeError] = json.from_string(String.from("{{\"kind\": \"box\", \"w\": 7, \"h\": 8}}"))
-    match sr {
-        Ok(x) => print(json.to_string(x))
-        Err(e) => out(json.decode_error_text(e))
+    match json.to_string(Circle(5)) {
+        Ok(s) => print(s)
+        Err(e) => out(serial.error_text(e))
     }
-    let sb: Result[List[i64], json.DecodeError] = json.from_string(String.from("[1, x]"))
+    let sr: Result[Shape, serial.Error] = json.from_string(String.from("{{\"kind\": \"box\", \"w\": 7, \"h\": 8}}"))
+    match sr {
+        Ok(x) => match json.to_string(x) {
+            Ok(s) => print(s)
+            Err(e) => out(serial.error_text(e))
+        }
+        Err(e) => out(serial.error_text(e))
+    }
+    let sb: Result[List[i64], serial.Error] = json.from_string(String.from("[1, x]"))
     match sb {
         Ok(_) => print("bad ok?")
-        Err(e) => out(json.decode_error_text(e))
+        Err(e) => out(serial.error_text(e))
     }
     print("-- part of a parsed document")
     let d = json.parse("{{\"meta\": {{\"created\": 3, \"by\": \"x\"}}}}".bytes()).unwrap()
-    let mut rd = json.reader(d, json.field(d, d.root, "meta").unwrap())
-    let m: Result[Meta, json.DecodeError] = Meta.decode(inout rd)
-    match m {
-        Ok(v) => out(json.to_json(v))
-        Err(e) => out(json.decode_error_text(e))
+    let rd = json.deserializer(d, json.field(d, d.root, "meta").unwrap())
+    let mm: Result[Meta, serial.Error] = Meta.deserialize(rd)
+    match mm {
+        Ok(v) => out(text(json.to_bytes(v)))
+        Err(e) => out(serial.error_text(e))
     }
-    print(json.member_name("user_id", "", "camelCase").len())
-    out(json.member_name("displayName", "", "SCREAMING_SNAKE_CASE"))
-    out(json.member_name("HTTPServer2", "", "kebab-case"))
+    print(serial.member_name("user_id", "", "camelCase").len())
+    out(serial.member_name("displayName", "", "SCREAMING_SNAKE_CASE"))
+    out(serial.member_name("HTTPServer2", "", "kebab-case"))
 }

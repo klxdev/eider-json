@@ -1,16 +1,16 @@
 import std.bytes
 import std.env
 import std.io
+import std.serial
 import json
 
-// A mutation fuzzer for parsing and the derived decoders: documents that decode are mutated
+// A mutation fuzzer for parsing and the derived readers: documents that decode are mutated
 // (bytes flipped, inserted, deleted, repeated, cut), then parsed and decoded into typed
-// values within `json.limits()`. Nothing may trap: each mutant is Ok or a DecodeError with a
-// path. Whatever decodes must encode and decode back to the same text (a round trip). The
+// values within `json.limits()`. Nothing may trap: each mutant is Ok or a serial.Error. Whatever decodes must encode and decode back to the same text (a round trip). The
 // mutants are a fixed sequence (a seeded PRNG), so the counts below are this file's golden
 // output; FUZZ_ITERS=<n> runs n mutants per seed instead (scripts/fuzz.sh).
 
-@[json(rename_all = "snake_case")]
+@[derive(Serialize, Deserialize), json(rename_all = "snake_case")]
 type Order = {
     id: u64,
     @[json(name = "who")] customer: String,
@@ -22,12 +22,13 @@ type Order = {
     tags: Map[String, i64],
 }
 
+@[derive(Serialize, Deserialize)]
 type Line = { sku: String, qty: u32, price: i64 }
 
-@[json(unknown = "ignore")]
+@[derive(Serialize, Deserialize), json(unknown = "ignore")]
 type Audit = { created: i64, by: String }
 
-@[json(tag = "state")]
+@[derive(Serialize, Deserialize), json(tag = "state")]
 type Status = | Open | Shipped(carrier: String, days: u8) | Cancelled(reason: String)
 
 
@@ -99,28 +100,28 @@ type Counts = { ok: u64, err: u64, parse_err: u64 }
 fn run(seed: List[u8], iters: u64, inout rng: Rng, inout c: Counts) uses io {
     for k in 0..iters {
         let m = mutate(inout rng, seed)
-        let r: Result[Order, json.DecodeError] = json.from_json(m)
+        let r: Result[Order, serial.Error] = json.from_bytes(m)
         match r {
             Ok(o) => {
                 c.ok += 1
-                let text = json.to_json(o)
-                let back: Result[Order, json.DecodeError] = json.from_json(text.copy())
+                let text = json.to_bytes(o).unwrap_or(List.new())
+                let back: Result[Order, serial.Error] = json.from_bytes(text.copy())
                 match back {
                     Ok(o2) => {
-                        if !bytes.eq(json.to_json(o2), text) {
+                        if !bytes.eq(json.to_bytes(o2).unwrap_or(List.new()), text) {
                             io.outln(bytes.concat("round trip differs: ".bytes(), text))
                         }
                     }
                     Err(e) => {
                         let mut l = "round trip fails: ".bytes()
-                        bytes.append(inout l, json.decode_error_text(e))
+                        bytes.append(inout l, serial.error_text(e))
                         io.outln(l)
                     }
                 }
             }
             Err(e) => {
-                if e.path.len() == 0 || e.path[0] != 36 { io.outln(bytes.concat("error without a path: ".bytes(), e.msg)) }
-                if bytes.eq(e.path, "$".bytes()) { c.parse_err += 1 } else { c.err += 1 }
+                if e.msg.len() == 0 { io.outln("error without a message".bytes()) }
+                if e.path.len() == 0 { c.parse_err += 1 } else { c.err += 1 }
             }
         }
         // the plain parser on the same bytes: never traps either
@@ -150,10 +151,10 @@ fn main() uses io {
         let mut rng = Rng(i as u64 + 1)
         let s = seeds[i as usize].bytes()
         // each seed decodes as it is
-        let r: Result[Order, json.DecodeError] = json.from_json(s.copy())
+        let r: Result[Order, serial.Error] = json.from_bytes(s.copy())
         match r {
-            Ok(o) => io.outln(json.to_json(o))
-            Err(e) => io.outln(json.decode_error_text(e))
+            Ok(o) => io.outln(json.to_bytes(o).unwrap_or(List.new()))
+            Err(e) => io.outln(serial.error_text(e))
         }
         run(s, iters, inout rng, inout c)
     }

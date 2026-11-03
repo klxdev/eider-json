@@ -3,6 +3,13 @@
 eider-json's versions (semver). Before 1.0 the MAJOR.MINOR is the Eider toolchain's it goes
 with (`eider` in eider.toml), the PATCH its own.
 
+## Unreleased
+
+For Eider 0.6.
+
+- JSON is a format for `std/serial` (eider-lang #100, #156). Removed: `Encode`, `Decode`, `Reader`, `DecodeError`, `to_json`, `from_json`, the derived codecs and `encode_*`/`decode_*`. Added: `to_bytes`, `to_string`, `from_bytes`, `from_string`, `from_bytes_with`, and `Serializer`/`Deserializer` (`serializer()`, `deserializer(doc, node)`).
+- Types opt in with `@[derive(Serialize, Deserialize)]`; `@[serial(...)]` shapes every format and `@[json(...)]` this one (`flatten`, `unknown` are JSON's). The Writer and the parser are unchanged.
+
 ## 0.5.0
 
 For Eider 0.5 (`eider = "0.5"`). Adds `to_string` and `from_string`; nothing else changed.
