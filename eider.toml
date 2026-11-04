@@ -1,5 +1,5 @@
 [package]
 name = "json"
-version = "0.5.0"
-eider = "0.5"
+version = "0.6.0"
+eider = "0.6"
 description = "RFC 8259 JSON: an arena-based value tree, strict parsing with positions, writing"

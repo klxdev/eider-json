@@ -3,9 +3,9 @@
 eider-json's versions (semver). Before 1.0 the MAJOR.MINOR is the Eider toolchain's it goes
 with (`eider` in eider.toml), the PATCH its own.
 
-## Unreleased
+## 0.6.0
 
-For Eider 0.6.
+For Eider 0.6 (`eider = "0.6"`).
 
 - JSON is a format for `std/serial` (eider-lang #100, #156). Removed: `Encode`, `Decode`, `Reader`, `DecodeError`, `to_json`, `from_json`, the derived codecs and `encode_*`/`decode_*`. Added: `to_bytes`, `to_string`, `from_bytes`, `from_string`, `from_bytes_with`, and `Serializer`/`Deserializer` (`serializer()`, `deserializer(doc, node)`).
 - With the std/serial of Eider 0.6: a record with a `json(flatten)` field and an enum variant's body reject unknown members like any record (eider-lang #165, #166), `@[json(with = module)]` takes a per-field adapter (#164), `@[check(...)]` is enforced while reading (#101) and `serial.Error` has a `more` list (a `Deserializer` builds errors with `serial.error_at`).
